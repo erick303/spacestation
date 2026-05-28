@@ -79,10 +79,12 @@ type model struct {
 	flashUntil  time.Time
 
 	// cleaning state
-	cleanStart   time.Time
-	cleanElapsed time.Duration
-	cleanResults []cleanup.Result
-	cleanedBytes int64
+	cleanStart    time.Time
+	cleanElapsed  time.Duration
+	cleanResults  []cleanup.Result
+	cleanedBytes  int64
+	cleanCancel   context.CancelFunc
+	cleanCancelled bool // set when user hit esc/ctrl+c during stageCleaning
 
 	// "press space again to confirm group toggle" arm state
 	armedGroupCat    scan.Category
@@ -280,6 +282,26 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case stageCleaning:
+		switch msg.String() {
+		case "esc", "ctrl+c":
+			// Cancel any in-flight subprocess (via exec.CommandContext) and
+			// short-circuit the command loop. The cleanup goroutine returns
+			// cleanDoneMsg with whatever results accumulated; Update then
+			// transitions to stageDone so the user sees partial results.
+			if m.cleanCancel != nil && !m.cleanCancelled {
+				m.cleanCancel()
+				m.cleanCancelled = true
+			}
+			return m, nil
+		case "q":
+			// Same cancel, but also tear down the program. cleanup.Execute
+			// will return shortly; if the process has already exited by
+			// then, the goroutine dies with it.
+			if m.cleanCancel != nil {
+				m.cleanCancel()
+			}
+			return m, tea.Quit
+		}
 		return m, nil
 
 	case stageDone:
@@ -544,21 +566,27 @@ func (m *model) setFlash(s string) {
 }
 
 func (m *model) executeClean() tea.Cmd {
+	var selected []scan.Candidate
+	var bytes int64
+	for _, c := range m.cands {
+		if c.Selected {
+			selected = append(selected, c)
+			bytes += c.SizeBytes
+		}
+	}
+	mode := cleanup.ModeTrash
+	if m.hardDelete || m.cfg.Delete.Mode == "hard" {
+		mode = cleanup.ModeHard
+	}
+	// Build the cancel context synchronously so the key handler can call
+	// m.cleanCancel() as soon as the cleaning stage starts.
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cleanCancel = cancel
+	cfg := m.cfg
 	return func() tea.Msg {
-		var selected []scan.Candidate
-		var bytes int64
-		for _, c := range m.cands {
-			if c.Selected {
-				selected = append(selected, c)
-				bytes += c.SizeBytes
-			}
-		}
-		mode := cleanup.ModeTrash
-		if m.hardDelete || m.cfg.Delete.Mode == "hard" {
-			mode = cleanup.ModeHard
-		}
+		defer cancel()
 		start := time.Now()
-		results := cleanup.Execute(selected, mode)
+		results := cleanup.Execute(ctx, selected, mode)
 		// Invalidate size-cache entries for what we successfully removed so the
 		// next scan re-measures them.
 		for _, r := range results {
@@ -567,6 +595,7 @@ func (m *model) executeClean() tea.Cmd {
 			}
 		}
 		_ = scan.SaveSizeCache()
+		_ = cfg // capture so closure doesn't reference m
 		return cleanDoneMsg{results: results, elapsed: time.Since(start), bytes: bytes}
 	}
 }
@@ -841,9 +870,17 @@ func (m *model) viewConfirm() string {
 
 func (m *model) viewCleaning() string {
 	title := headerStyle.Render("spacestation")
-	line := fmt.Sprintf("%s  %s  cleaning… %d items, %s",
-		title, m.spinner.View(), m.countSelected(), humanBytes(m.selectedBytes()))
-	return "\n" + line + "\n\n" + helpStyle.Render("please wait — Finder is moving files to Trash")
+	verb := "cleaning…"
+	if m.cleanCancelled {
+		verb = warnStyle.Render("cancelling… (finishing current step)")
+	}
+	line := fmt.Sprintf("%s  %s  %s %d items, %s",
+		title, m.spinner.View(), verb, m.countSelected(), humanBytes(m.selectedBytes()))
+	hint := "please wait — Finder is moving files to Trash    " + mutedStyle.Render("esc cancel · q quit")
+	if m.cleanCancelled {
+		hint = mutedStyle.Render("waiting for the in-flight step to wind down…")
+	}
+	return "\n" + line + "\n\n" + helpStyle.Render(hint)
 }
 
 func (m *model) viewDone() string {

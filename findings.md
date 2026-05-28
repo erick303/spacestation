@@ -45,12 +45,6 @@ _(none open — see Resolved section at bottom)_
 
 **Fix:** `if c.LastTouched.IsZero() { c.Reason = "unknown age — not auto-selecting"; continue }` at the top of the loop. Optionally clamp future ages to 0.
 
-### H7. `stageCleaning` swallows `ctrl+c`
-**File:** `internal/tui/model.go:228-229`
-**Verification:** confirmed. The whole switch in `stageCleaning` is `return m, nil` — no key handled. On a multi-minute `docker system prune` or `pip cache purge` the user is stuck. The mockup at `docs/tui-mockup.html:162` advertised "esc cancel after current step"; not delivered.
-
-**Fix:** at minimum, handle `ctrl+c` → `tea.Quit`. Better, thread a `context.Context` into `cleanup.Execute` and cancel on `esc` between command-action items.
-
 ### H8. `tea.WithMouseCellMotion()` enabled with zero mouse handlers
 **File:** `internal/tui/model.go:23`
 **Verification:** confirmed. Enabling mouse motion breaks native text-selection / copy-paste in most terminal emulators — users have to hold Option (iTerm) or Shift to copy text. There are zero `tea.MouseMsg` cases anywhere in Update.
@@ -256,6 +250,9 @@ Resolved. `DirSize`, `CachedDirSize`, and the four probe orchestrators (`probeFi
 
 ### H2. `q` during scanning doesn't cancel the scan goroutine
 Resolved (same commit as H1). `stageScanning`'s quit handler now calls `m.scanCancel()` before `tea.Quit`. Walkers observe `ctx.Done()` at their next ReadDir tick (typically a few ms) and unwind, freeing FDs and letting the tail `SaveSizeCache` write complete before the process exits.
+
+### H7. `stageCleaning` swallows `ctrl+c`
+Resolved. `cleanup.Execute(ctx, …)`, `runCommand(parent, …)`, `trash.Move(ctx, …)`, `trash.Hard(ctx, …)`, and `emptyTrash(ctx, …)` all take a context now. The TUI's `executeClean` creates the context synchronously, stores `cleanCancel` on the model, and passes it into the Cmd goroutine. `stageCleaning` handles `esc`/`ctrl+c` (cancel and fall through to done view with partial results) and `q` (cancel and quit). `runCommand`'s timeout is derived from the parent ctx, so a cancel kills the in-flight subprocess via `exec.CommandContext`. The view hint advertises `esc cancel · q quit`, and flips to a "cancelling…" warning once the cancel has been issued. Test coverage for cleanup is deferred to Hy4.
 
 ### M16. `SaveSizeCache` marshals the map without holding the lock
 Resolved (rolled into H1). `SaveSizeCache` now `RLock`s for the full duration of `json.Marshal` rather than releasing before the marshal. Multiple concurrent readers are still allowed; concurrent writers (CachedDirSize cache-misses) wait their turn. Eliminates the "concurrent map iter + write" panic that H1's improved rescan made reliably triggerable.

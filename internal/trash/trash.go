@@ -1,6 +1,7 @@
 package trash
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -16,8 +17,13 @@ type Result struct {
 
 // Move sends each path to the macOS Trash via Finder (single batched
 // osascript call). Returns one Result per path. If osascript fails the
-// caller can retry individual paths or fall back to Hard.
-func Move(paths []string) []Result {
+// caller can retry individual paths or surface per-path errors.
+//
+// Cancellation: the osascript subprocess is launched via
+// exec.CommandContext, so cancelling `ctx` kills it. The batch is atomic
+// from Finder's side — partial cancellation may still process some items
+// before Finder sees the signal.
+func Move(ctx context.Context, paths []string) []Result {
 	if len(paths) == 0 {
 		return nil
 	}
@@ -34,7 +40,7 @@ func Move(paths []string) []Result {
 	}
 	b.WriteString("}")
 
-	cmd := exec.Command("osascript", "-e", b.String())
+	cmd := exec.CommandContext(ctx, "osascript", "-e", b.String())
 	out, err := cmd.CombinedOutput()
 
 	results := make([]Result, len(paths))
@@ -61,7 +67,12 @@ func Move(paths []string) []Result {
 // Hard removes paths recursively with os.RemoveAll, parallelized across a
 // small worker pool. Use only when the user explicitly asked for --hard or
 // the trash path failed.
-func Hard(paths []string, workers int) []Result {
+//
+// Cancellation: workers check ctx before calling os.RemoveAll, so paths
+// not yet started are skipped with the cancel error. An in-flight
+// RemoveAll on a particular path runs to completion (os.RemoveAll is not
+// context-aware).
+func Hard(ctx context.Context, paths []string, workers int) []Result {
 	if workers < 1 {
 		workers = 4
 	}
@@ -73,12 +84,20 @@ func Hard(paths []string, workers int) []Result {
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, workers)
 	for i, p := range paths {
+		if ctx.Err() != nil {
+			results[i].Err = ctx.Err()
+			continue
+		}
 		i, p := i, p
 		wg.Add(1)
 		sem <- struct{}{}
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
+			if err := ctx.Err(); err != nil {
+				results[i].Err = err
+				return
+			}
 			if err := os.RemoveAll(p); err != nil {
 				results[i].Err = err
 			}
