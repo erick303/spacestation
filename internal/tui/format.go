@@ -51,6 +51,28 @@ func humanBytes(n int64) string {
 	}
 }
 
+// humanCount formats a non-negative integer with thousands separators
+// (e.g. 48210 -> "48,210") for readable file counts.
+func humanCount(n int) string {
+	s := fmt.Sprintf("%d", n)
+	if len(s) <= 3 {
+		return s
+	}
+	// Insert commas from the right.
+	var b strings.Builder
+	pre := len(s) % 3
+	if pre > 0 {
+		b.WriteString(s[:pre])
+	}
+	for i := pre; i < len(s); i += 3 {
+		if b.Len() > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(s[i : i+3])
+	}
+	return b.String()
+}
+
 func humanAge(t time.Time) string {
 	if t.IsZero() {
 		return "—"

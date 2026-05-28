@@ -1156,8 +1156,9 @@ func (m *model) viewCleaning() string {
 }
 
 // viewCleaningTrash renders the permanent-Trash-removal screen with a live
-// count, a progress bar, and a rolling log of the last few items removed, so a
-// long empty (which can take minutes) shows continuous activity.
+// item count + bar, a running file counter, and a rolling log of the last few
+// files removed. The bar tracks top-level items; the file counter climbs with
+// every unlink so even one huge item visibly churns instead of looking stuck.
 func (m *model) viewCleaningTrash() string {
 	title := headerStyle.Render("spacestation")
 	verb := "removing from Trash…"
@@ -1170,6 +1171,9 @@ func (m *model) viewCleaningTrash() string {
 		title, m.spinner.View(), verb, m.trashDone, total, humanBytes(bytes))
 
 	bar := mutedStyle.Render(renderProgressBar(m.trashDone, total, 24))
+	if m.trashFiles > 0 {
+		bar += mutedStyle.Render(fmt.Sprintf("   · %s files removed", humanCount(m.trashFiles)))
+	}
 
 	// Rolling log: pad to 3 lines so the layout doesn't jump as it fills.
 	logLines := make([]string, 0, 3)
