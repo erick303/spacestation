@@ -945,44 +945,40 @@ func (m *model) renderList(width, height int) string {
 		return ""
 	}
 
-	// simple windowed view
-	start := 0
-	end := len(m.rows)
-	if len(m.rows) > height {
-		// keep cursor in view
-		if m.cursor < height/2 {
-			start = 0
-		} else if m.cursor > len(m.rows)-height/2 {
-			start = len(m.rows) - height
-		} else {
-			start = m.cursor - height/2
+	// Build every visual line up front — including the blank separator before
+	// each group — and record which line carries the cursor. Windowing then
+	// operates on lines, not rows, so the height budget and the cursor position
+	// can't disagree. (The old row-based window let group-separator blanks eat
+	// the budget before the loop reached the cursor near the bottom, dropping
+	// the cursor row off-screen behind the footer.)
+	var lines []string
+	cursorLine := 0
+	for i, r := range m.rows {
+		if i > 0 && r.isHeader {
+			lines = append(lines, "") // blank between groups
 		}
-		end = min(start+height, len(m.rows))
+		if i == m.cursor {
+			cursorLine = len(lines)
+		}
+		if r.isHeader {
+			lines = append(lines, m.renderHeaderRow(r, i == m.cursor))
+		} else {
+			lines = append(lines, m.renderItemRow(width, m.cands[r.candIdx], i == m.cursor))
+		}
 	}
 
-	// Render at most `height` output lines so the surrounding chrome (top
-	// status, dashboard, detail, help) stays visible. The blank line between
-	// groups counts toward this budget.
-	var b strings.Builder
-	linesOut := 0
-	for i := start; i < end && linesOut < height; i++ {
-		isCursor := i == m.cursor
-		r := m.rows[i]
-		if i > start && r.isHeader && linesOut < height-1 {
-			b.WriteString("\n")
-			linesOut++
-		}
-		var line string
-		if r.isHeader {
-			line = m.renderHeaderRow(r, isCursor)
-		} else {
-			line = m.renderItemRow(width, m.cands[r.candIdx], isCursor)
-		}
-		b.WriteString(line)
-		b.WriteString("\n")
-		linesOut++
+	if len(lines) <= height {
+		return strings.Join(lines, "\n") + "\n"
 	}
-	return b.String()
+
+	// Center the cursor when possible, clamped to the ends.
+	start := min(max(cursorLine-height/2, 0), len(lines)-height)
+	// Don't open the window on a group-separator blank — it just wastes a line.
+	if start > 0 && lines[start] == "" {
+		start++
+	}
+	end := min(start+height, len(lines))
+	return strings.Join(lines[start:end], "\n") + "\n"
 }
 
 func (m *model) renderHeaderRow(r row, isCursor bool) string {
