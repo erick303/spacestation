@@ -58,36 +58,31 @@ func (c Category) String() string {
 	}
 }
 
+// categorySortOrder is the display rank for each category (lower = earlier).
+// Keyed by Category so adding a new category is a one-line change here; any
+// category not listed sorts last via SortOrder's fallback.
+var categorySortOrder = [...]int{
+	CatNodeModules: 0,
+	CatJSBuild:     1,
+	CatPython:      2,
+	CatRust:        3,
+	CatJVM:         4,
+	CatXcode:       5,
+	CatGoCache:     6,
+	CatDocker:      7,
+	CatHomebrew:    8,
+	CatSystemCache: 9,
+	CatDownloads:   10,
+	CatTrash:       11,
+	CatOther:       99,
+}
+
 // SortOrder is used to order groups in the UI (lower = earlier).
 func (c Category) SortOrder() int {
-	switch c {
-	case CatNodeModules:
-		return 0
-	case CatJSBuild:
-		return 1
-	case CatPython:
-		return 2
-	case CatRust:
-		return 3
-	case CatJVM:
-		return 4
-	case CatXcode:
-		return 5
-	case CatGoCache:
-		return 6
-	case CatDocker:
-		return 7
-	case CatHomebrew:
-		return 8
-	case CatSystemCache:
-		return 9
-	case CatDownloads:
-		return 10
-	case CatTrash:
-		return 11
-	default:
+	if int(c) < 0 || int(c) >= len(categorySortOrder) {
 		return 99
 	}
+	return categorySortOrder[c]
 }
 
 type Safety int

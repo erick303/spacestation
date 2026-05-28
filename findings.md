@@ -31,10 +31,6 @@ _(none open — see Resolved section at bottom)_
 **Files:** `internal/trash/trash.go` (90 LOC), called from `internal/cleanup/cleanup.go:62, 64, 75`.
 **Verification:** confirmed. One caller, no abstraction, no tests. The split adds a package boundary without an interface or alternate implementation. Recommend unexported `moveToTrash` / `hardDelete` helpers in `cleanup`.
 
-### M4. `Category.SortOrder()` duplicates iota declaration order
-**File:** `internal/scan/types.go:55-84` vs `:7-21`
-**Verification:** confirmed. The switch encodes ~the same order as the iota constants except GoCache and Xcode are swapped (iota: GoCache=5, Xcode=6; sort: Xcode=5, GoCache=6) and Docker and Homebrew similarly. Two parallel orderings will drift the next time someone adds a category. Use a `[...]int{}` lookup table indexed by `int(c)`, or — if no order swaps are needed — reorder the iota constants and use `int(c)` directly.
-
 ### M5. `Category` knowledge leaks into the TUI in three places
 **Files:** `internal/scan/types.go:55-84` (`SortOrder`), `internal/tui/styles.go:63-83` (`categoryColors`), `internal/scan/classify.go` + `fixed.go` + `smart.go` (emitters).
 **Verification:** confirmed. Adding a category requires touching: types.go (const), `String()`, `SortOrder()`, styles.go (color map), plus the emitter. Five files.
@@ -237,6 +233,9 @@ Resolved. `main.go` now exposes a `--version` flag that reads `runtime/debug.Rea
 
 ### H8. `tea.WithMouseCellMotion()` enabled with zero mouse handlers
 Resolved. Removed `tea.WithMouseCellMotion()` from `tea.NewProgram` at `internal/tui/model.go:23`. No `tea.MouseMsg` cases exist in Update, so the option was pure cost — terminal emulators (iTerm, Alacritty, etc.) intercept the mouse stream and require Option/Shift to copy text. Native click-drag-to-copy now works again. The option can come back the day a mouse handler is added.
+
+### M4. `Category.SortOrder()` duplicates iota declaration order
+Resolved. Replaced the 13-arm switch with a single `categorySortOrder` lookup table indexed by `Category`. `SortOrder()` is now a bounds-checked array read with a 99 fallback for out-of-range values. The table is the only place display rank lives, so adding a new category is one new const + one new line in the table — same number of edits as before, but the parallel-order drift risk is gone.
 
 ### M3. Collapse parallel enum + `*Str` fields via `MarshalJSON`
 Resolved. `Category`, `Safety`, and `Action` each got a `MarshalJSON` method that delegates to `String()`, so the encoder produces the same human-readable values automatically. The three `*Str` mirror fields on `Candidate` are gone, the `Category`/`Safety`/`Action` fields lose their `json:"-"` and take the public JSON tags, and `Normalize()` is gone. The Title fallback (`if Title == "" { Title = Path }`) that `Normalize` also did moves inline into `scan.addCandidate`. The two stray `c.Normalize()` calls in `score.Apply` were no-ops once mirrors disappeared and were dropped.
