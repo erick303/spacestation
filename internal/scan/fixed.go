@@ -178,7 +178,13 @@ func runFixedProbe(ctx context.Context, p fixedProbe, workers int, skip map[stri
 	if err != nil {
 		return
 	}
+	// Bound child concurrency. Without this, ~/Library/Caches with N children
+	// (often 100–300) would spawn N goroutines, each calling CachedDirSize
+	// with its own pool of `workers` walker goroutines — peak ~N×workers
+	// concurrent FDs/syscalls. Cap fan-out at `workers` so we get
+	// workers × workers as the worst case instead.
 	var childWG sync.WaitGroup
+	childSem := make(chan struct{}, workers)
 	for _, e := range entries {
 		if ctx.Err() != nil {
 			break
@@ -191,8 +197,10 @@ func runFixedProbe(ctx context.Context, p fixedProbe, workers int, skip map[stri
 			continue
 		}
 		childWG.Add(1)
+		childSem <- struct{}{}
 		go func(path string) {
 			defer childWG.Done()
+			defer func() { <-childSem }()
 			size := CachedDirSize(ctx, path, workers)
 			if size == 0 {
 				return

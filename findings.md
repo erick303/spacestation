@@ -39,12 +39,6 @@ _(none open — see Resolved section at bottom)_
 
 **Fix:** extract `humanSize(num float64, unit string) int64`; promote `sizeRe` to a package-level var; rename `parseDockerSize` to `parseHumanSize` or have it take pre-split arguments.
 
-### M12. Unbounded fan-out under expand-probes
-**File:** `internal/scan/fixed.go:166-192`
-**Verification:** confirmed. For `~/Library/Caches` with N children (often 100–300), this spawns N goroutines, each calling `CachedDirSize(..., workers)` which itself uses up to `workers` goroutines. Worst case: ~N × workers = thousands of concurrent FDs. `os.ReadDir` errors are then swallowed (`size.go:25, scan.go:177`) producing 0-size candidates that get filtered out — silent data loss.
-
-**Fix:** bounded child semaphore (`make(chan struct{}, workers)`).
-
 ---
 
 ## MEDIUM — defensive / latent
@@ -110,6 +104,9 @@ After steps 1–4 the tool is honest about what it does. After 5–8 the codebas
 ---
 
 ## Resolved
+
+### M12. Unbounded fan-out under expand-probes
+Resolved. `runFixedProbe`'s expand path now caps child concurrency with a `make(chan struct{}, workers)` semaphore. Before: `~/Library/Caches` with N children spawned N goroutines each running `CachedDirSize(ctx, ..., workers)` for a worst case of ~N × workers concurrent walker goroutines (and FDs). Now: at most `workers × workers`, which scales with the worker pool the caller already chose. `defer func() { <-childSem }()` releases the slot even on panic.
 
 ### L1. `c` "clear-all" is one key from `ctrl+c`
 Resolved. `c` now uses the same two-press arm pattern as space-on-a-group-header: first press flashes "Press c again to clear all N selections" and arms a 3-second window; second press within the window commits. With nothing selected, the arm is skipped and a "Nothing selected to clear." flash fires instead. Added `armedClearAll` + `armedClearAllExpiry` fields on the model and reset them in `resetForRescan` alongside the existing arm state.
