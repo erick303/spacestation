@@ -1,28 +1,33 @@
-# VHS tape — records the spacestation TUI as a GIF + PNG.
+# VHS tape — records the spacestation TUI as a GIF + still PNG.
 #
-# Requires charmbracelet/vhs (`brew install vhs`) and the spacestation binary
-# on $PATH (`go install .` from the repo root).
+# Requires charmbracelet/vhs (`brew install vhs ttyd ffmpeg`) and the
+# spacestation binary on $PATH (`go install .` from the repo root).
+#
+# The demo is recorded against a sanitized fixture tree under
+# /tmp/spacestation-demo (built by docs/setup-fixtures.sh), so the GIF
+# doesn't leak real project names from ~/projects.
 #
 # Regenerate:
 #   vhs docs/demo.tape
-#
-# Tip: to avoid recording real project names from ~/projects in the demo,
-# point at a sanitized scan root, e.g. create a fixtures dir and pass
-# `--scan-root /tmp/spacestation-demo` here.
 
 Output docs/demo.gif
-Output docs/hero.png
 
 Set FontSize       14
 Set Width          1400
 Set Height         820
-Set Theme          "Tokyo Night"
+Set Theme          "TokyoNight"
 Set Padding        24
 Set TypingSpeed    40ms
-Set PlaybackSpeed  1.0
 
-# Launch.
-Type "spacestation"
+# Build the sanitized fixture tree off-camera.
+Hide
+Type "bash docs/setup-fixtures.sh"
+Enter
+Sleep 1s
+Show
+
+# Launch against the fixture root.
+Type "spacestation --scan-root /tmp/spacestation-demo"
 Enter
 
 # Wait for the scan to finish. Bump this if your cold scan takes longer than
@@ -30,7 +35,7 @@ Enter
 # before the screenshot is captured.
 Sleep 8s
 
-# Capture the hero frame: dashboard visible, first group expanded.
+# Capture the hero still: dashboard visible, first group expanded.
 Screenshot docs/hero.png
 
 # Walk down through a few rows so the GIF shows the cursor moving.
@@ -47,8 +52,9 @@ Sleep 800ms
 Space
 Sleep 800ms
 
-# Back up and show the disk dashboard area lingering.
-Type "[" Type "["
+# Back up to show the disk dashboard area lingering.
+Type "["
+Type "["
 Sleep 1s
 
 # Quit cleanly.
