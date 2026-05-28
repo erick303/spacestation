@@ -111,6 +111,10 @@ type model struct {
 	armedClearAll       bool
 	armedClearAllExpiry time.Time
 
+	// help overlay: toggled by `?` from stageBrowsing. Renders a centered
+	// box of all keybindings; closed by `?`, `esc`, or `q`.
+	helpVisible bool
+
 	// dashboard
 	dashboardOn bool
 	diskUsage   scan.DiskUsage
@@ -446,7 +450,19 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Help overlay intercepts every key — close on ?, esc, or q; swallow
+	// everything else so a stray space doesn't toggle items behind the modal.
+	if m.helpVisible {
+		switch msg.String() {
+		case "?", "esc", "q":
+			m.helpVisible = false
+		}
+		return m, nil
+	}
 	switch msg.String() {
+	case "?":
+		m.helpVisible = true
+		return m, nil
 	case "q", "ctrl+c":
 		return m, tea.Quit
 	case "j", "down":
@@ -874,6 +890,9 @@ func (m *model) View() string {
 	case stageScanning:
 		return m.viewScanning()
 	case stageBrowsing:
+		if m.helpVisible {
+			return m.viewBrowsing() + "\n" + m.viewHelpOverlay()
+		}
 		return m.viewBrowsing()
 	case stageConfirm:
 		return m.viewBrowsing() + "\n" + m.viewConfirm()
@@ -883,6 +902,47 @@ func (m *model) View() string {
 		return m.viewDone()
 	}
 	return ""
+}
+
+// viewHelpOverlay renders the full keybindings list as a bordered box,
+// mirroring the confirmBoxStyle used for the delete-confirm modal.
+// Triggered by `?` from stageBrowsing; closed by `?`, `esc`, or `q`.
+func (m *model) viewHelpOverlay() string {
+	rows := [][2]string{
+		{"↑/↓, j/k", "move cursor"},
+		{"g / G", "jump to top / bottom (also home / end)"},
+		{"[ / ]", "jump to previous / next group header"},
+		{"pgup / pgdn", "page up / down"},
+		{"space", "toggle current item (or group on a header — two-press)"},
+		{"a / u", "select / unselect all items in current group"},
+		{"A", "select all"},
+		{"c", "clear all (two-press to confirm)"},
+		{"tab", "collapse / expand group at cursor"},
+		{"enter", "open confirmation, then clean (move to Trash)"},
+		{"x", "permanent Trash action (checked items, or empty all)"},
+		{"v", "toggle disk-usage dashboard"},
+		{"r", "rescan"},
+		{"?", "show / hide this help"},
+		{"q / ctrl+c", "quit"},
+	}
+	// Right-pad the key column to a fixed width so the action column lines up.
+	keyW := 0
+	for _, r := range rows {
+		if w := lipgloss.Width(r[0]); w > keyW {
+			keyW = w
+		}
+	}
+	var b strings.Builder
+	b.WriteString(headerStyle.Render("Keys") + "\n\n")
+	for _, r := range rows {
+		b.WriteString("  ")
+		b.WriteString(padRight(r[0], keyW))
+		b.WriteString("   ")
+		b.WriteString(mutedStyle.Render(r[1]))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n" + helpStyle.Render("? / esc / q  close"))
+	return confirmBoxStyle.Render(b.String())
 }
 
 func (m *model) viewScanning() string {
@@ -916,7 +976,7 @@ func (m *model) viewBrowsing() string {
 
 	// Two compact help lines so they never wrap unpredictably on narrow terms.
 	helpLine1 := "space toggle  a select-group  u clear-group  A select-all  c clear"
-	helpLine2 := "tab collapse  [ / ] prev/next group  v dashboard  enter clean  x empty/remove trash  r rescan  q quit"
+	helpLine2 := "tab collapse  [ / ] prev/next group  v dashboard  enter clean  x empty/remove trash  r rescan  ? help  q quit"
 	help := helpStyle.Render(helpLine1 + "\n" + helpLine2)
 
 	flashLine := ""

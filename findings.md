@@ -23,12 +23,6 @@ _(none open — see Resolved section at bottom)_
 
 ## LOW — UX & polish
 
-### L2. No `?` help / no `/` filter / no `o` open-in-Finder
-**File:** keybindings in `internal/tui/model.go:245-305`
-**Verification:** confirmed. Two-line help at the bottom covers the basics; for a 500+ row list with 14 bindings the conventions are a `?` modal, `/` filter, and `o` reveal. The list also has no scroll-position indicator.
-
-**Fix:** at minimum a `?` overlay. Filter and reveal are larger items but would change the product feel.
-
 ---
 
 ## HYGIENE — remaining gaps
@@ -68,6 +62,9 @@ After steps 1–4 the tool is honest about what it does. After 5–8 the codebas
 ---
 
 ## Resolved
+
+### L2. No `?` help overlay
+Resolved (the `?` overlay part — `/` filter and `o` open-in-Finder were scoped out as larger product changes). `?` from stageBrowsing now toggles a centered help box (`viewHelpOverlay`) styled with the same `confirmBoxStyle` as the delete-confirm modal. Lists all 15 bindings in a two-column layout, padded so the action column lines up. While open, the key handler intercepts and swallows everything except `?` / `esc` / `q` (which close it), so a stray space behind the modal can't accidentally toggle items. `helpVisible` field on the model defaults to false and is reset by `resetForRescan` implicitly (the field is zero-value false; no explicit reset needed since rescan goes through stageScanning where the overlay doesn't render). Added "? help" to the existing bottom help line so users can discover the binding.
 
 ### M9. Mockup-vs-delivered: cleaning UI is one spinner
 Deferred to post-v0.1.0 as a known limitation, not closed via code. The mockup's per-step progress bar / live command output / per-batch checkmarks is a real product feature, not a finding-sized fix — `cleanup.Execute` would need to stream results via a channel and the TUI would need to subscribe. The current single-spinner UI is honest about what it does and the cancel path (H7) gives the user a way out if a `docker system prune` runs long. Recording the gap rather than closing as Won't Fix because it remains worth doing later.
