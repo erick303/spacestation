@@ -54,7 +54,10 @@ func Execute(ctx context.Context, cands []scan.Candidate, mode Mode) []Result {
 			continue
 		}
 		if c.Category == scan.CatTrash {
-			results[i].Err = emptyTrash(ctx, c.Path)
+			// Trash is driven by the separate empty/remove action
+			// (RemoveFromTrash / EmptyTrash) — never the move-to-Trash path.
+			// Defensive: skip any that leak in so we never try to "move
+			// ~/.Trash to the Trash".
 			continue
 		}
 		deletePaths = append(deletePaths, c.Path)
@@ -92,6 +95,47 @@ func Execute(ctx context.Context, cands []scan.Candidate, mode Mode) []Result {
 		results[i].Err = err
 	}
 	return results
+}
+
+// RemoveFromTrash permanently removes each candidate's Path (os.RemoveAll), in
+// parallel. Items already in the Trash can't be re-trashed, so removal is always
+// permanent regardless of delete mode. Returns one Result per input candidate,
+// in input order, so the same done-screen / size-cache code path applies.
+func RemoveFromTrash(ctx context.Context, cands []scan.Candidate) []Result {
+	results := make([]Result, len(cands))
+	for i, c := range cands {
+		results[i] = Result{Candidate: c}
+	}
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 8)
+	for i, c := range cands {
+		if ctx.Err() != nil {
+			results[i].Err = ctx.Err()
+			continue
+		}
+		i, p := i, c.Path
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if err := ctx.Err(); err != nil {
+				results[i].Err = err
+				return
+			}
+			if err := os.RemoveAll(p); err != nil {
+				results[i].Err = err
+			}
+		}()
+	}
+	wg.Wait()
+	return results
+}
+
+// EmptyTrash removes all contents of `dir` (typically ~/.Trash), including
+// hidden entries, without removing the dir itself. Thin wrapper over emptyTrash.
+func EmptyTrash(ctx context.Context, dir string) error {
+	return emptyTrash(ctx, dir)
 }
 
 // emptyTrash removes the contents of `dir` (typically ~/.Trash) without

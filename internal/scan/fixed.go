@@ -257,16 +257,49 @@ func probeTrash(ctx context.Context, workers int, emit func(Candidate)) {
 	if err != nil || !info.IsDir() {
 		return
 	}
-	size := CachedDirSize(ctx, root, workers)
-	if size == 0 {
+	entries, err := os.ReadDir(root)
+	if err != nil {
 		return
 	}
-	emit(Candidate{
-		Path:        root,
-		Category:    CatTrash,
-		SizeBytes:   size,
-		LastTouched: LastTouched(root),
-		Safety:      SafetyUserContent,
-		Detail:      "Current contents of the macOS Trash. Selecting this empties the Trash.",
-	})
+	// One candidate per top-level item, mirroring probeDownloads. Each item is
+	// its own row so the user can browse the Trash and remove items selectively;
+	// the "empty Trash" path (cleanup.EmptyTrash) wipes everything, including the
+	// dot-prefixed entries we skip for display here.
+	var wg sync.WaitGroup
+	for _, e := range entries {
+		if ctx.Err() != nil {
+			break
+		}
+		if strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		full := filepath.Join(root, e.Name())
+		wg.Add(1)
+		go func(full, name string) {
+			defer wg.Done()
+			info, err := os.Lstat(full)
+			if err != nil {
+				return
+			}
+			if info.Mode()&os.ModeSymlink != 0 {
+				return
+			}
+			var size int64
+			if info.IsDir() {
+				size = CachedDirSize(ctx, full, workers)
+			} else if info.Mode().IsRegular() {
+				size = info.Size()
+			}
+			emit(Candidate{
+				Path:        full,
+				Title:       name,
+				Category:    CatTrash,
+				SizeBytes:   size,
+				LastTouched: info.ModTime(),
+				Safety:      SafetyUserContent,
+				Detail:      "Item in the Trash — removing it is permanent (press x).",
+			})
+		}(full, e.Name())
+	}
+	wg.Wait()
 }

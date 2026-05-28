@@ -86,6 +86,10 @@ type model struct {
 	cleanCancel   context.CancelFunc
 	cleanCancelled bool // set when user hit esc/ctrl+c during stageCleaning
 
+	// trash-removal action (the separate `x` flow, distinct from enter/clean)
+	pendingTrash  bool // the pending confirm/clean is an empty/remove-from-Trash op
+	trashEmptyAll bool // true = empty the whole Trash; false = remove checked items
+
 	// "press space again to confirm group toggle" arm state
 	armedGroupCat    scan.Category
 	armedGroupActive bool
@@ -274,6 +278,9 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "y", "Y", "enter":
 			m.stage = stageCleaning
 			m.cleanStart = time.Now()
+			if m.pendingTrash {
+				return m, m.executeTrashClean()
+			}
 			return m, m.executeClean()
 		case "n", "N", "esc", "q":
 			m.stage = stageBrowsing
@@ -369,12 +376,34 @@ func (m *model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "tab":
 		m.toggleCollapseAtCursor()
 	case "enter":
-		// Enter always means "clean". Tab is for collapse.
-		if m.countSelected() > 0 {
+		// Enter always means "clean" (move to Trash). Trash items are excluded —
+		// they have their own `x` action. Tab is for collapse.
+		if m.countSelectedCleanable() > 0 {
+			m.pendingTrash = false
 			m.stage = stageConfirm
 		} else {
 			m.setFlash("No items selected. Press space to select, A for all, then enter.")
 		}
+	case "x":
+		// Separate, permanent Trash action — never mixed with the move-to-Trash
+		// clean. Acts on checked Trash items if any, else empties the whole Trash.
+		selCount, trashCount := 0, 0
+		for _, c := range m.cands {
+			if c.Category != scan.CatTrash {
+				continue
+			}
+			trashCount++
+			if c.Selected {
+				selCount++
+			}
+		}
+		if trashCount == 0 {
+			m.setFlash("Trash is empty.")
+			return m, nil
+		}
+		m.pendingTrash = true
+		m.trashEmptyAll = selCount == 0
+		m.stage = stageConfirm
 	case "r":
 		// Rescan from browse stage. The previous scan goroutine is
 		// already done (we're past scanDoneMsg) so prevCancel/prevFinished
@@ -522,10 +551,48 @@ func (m *model) countSelected() int {
 	return n
 }
 
+// countSelectedCleanable counts selected items eligible for the move-to-Trash
+// clean — i.e. everything except Trash items, which have their own `x` action.
+func (m *model) countSelectedCleanable() int {
+	n := 0
+	for _, c := range m.cands {
+		if c.Selected && c.Category != scan.CatTrash {
+			n++
+		}
+	}
+	return n
+}
+
 func (m *model) selectedBytes() int64 {
 	var n int64
 	for _, c := range m.cands {
 		if c.Selected {
+			n += c.SizeBytes
+		}
+	}
+	return n
+}
+
+// trashTargetStats counts the Trash items the pending `x` action will remove:
+// all Trash items when trashEmptyAll, else the checked ones.
+func (m *model) trashTargetStats() (count int, bytes int64) {
+	for _, c := range m.cands {
+		if c.Category != scan.CatTrash {
+			continue
+		}
+		if m.trashEmptyAll || c.Selected {
+			count++
+			bytes += c.SizeBytes
+		}
+	}
+	return
+}
+
+// cleanableBytes is selectedBytes excluding Trash items (the move-to-Trash set).
+func (m *model) cleanableBytes() int64 {
+	var n int64
+	for _, c := range m.cands {
+		if c.Selected && c.Category != scan.CatTrash {
 			n += c.SizeBytes
 		}
 	}
@@ -569,7 +636,8 @@ func (m *model) executeClean() tea.Cmd {
 	var selected []scan.Candidate
 	var bytes int64
 	for _, c := range m.cands {
-		if c.Selected {
+		// Trash items are excluded — they're handled by executeTrashClean.
+		if c.Selected && c.Category != scan.CatTrash {
 			selected = append(selected, c)
 			bytes += c.SizeBytes
 		}
@@ -596,6 +664,53 @@ func (m *model) executeClean() tea.Cmd {
 		}
 		_ = scan.SaveSizeCache()
 		_ = cfg // capture so closure doesn't reference m
+		return cleanDoneMsg{results: results, elapsed: time.Since(start), bytes: bytes}
+	}
+}
+
+// executeTrashClean permanently removes Trash items — the separate `x` action.
+// When trashEmptyAll is set it empties the entire Trash (including hidden
+// entries); otherwise it removes just the checked Trash items.
+func (m *model) executeTrashClean() tea.Cmd {
+	var targets []scan.Candidate
+	var bytes int64
+	for _, c := range m.cands {
+		if c.Category != scan.CatTrash {
+			continue
+		}
+		if m.trashEmptyAll || c.Selected {
+			targets = append(targets, c)
+			bytes += c.SizeBytes
+		}
+	}
+	emptyAll := m.trashEmptyAll
+	trashDir := config.Expand("~/.Trash")
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cleanCancel = cancel
+	return func() tea.Msg {
+		defer cancel()
+		start := time.Now()
+		var results []cleanup.Result
+		if emptyAll {
+			err := cleanup.EmptyTrash(ctx, trashDir)
+			results = []cleanup.Result{{
+				Candidate: scan.Candidate{
+					Path:     trashDir,
+					Title:    "Trash",
+					Category: scan.CatTrash,
+					Action:   scan.ActionDelete,
+				},
+				Err: err,
+			}}
+		} else {
+			results = cleanup.RemoveFromTrash(ctx, targets)
+		}
+		for _, r := range results {
+			if r.Err == nil {
+				scan.InvalidateSizeCache(r.Candidate.Path)
+			}
+		}
+		_ = scan.SaveSizeCache()
 		return cleanDoneMsg{results: results, elapsed: time.Since(start), bytes: bytes}
 	}
 }
@@ -649,7 +764,7 @@ func (m *model) viewBrowsing() string {
 
 	// Two compact help lines so they never wrap unpredictably on narrow terms.
 	helpLine1 := "space toggle  a select-group  u clear-group  A select-all  c clear"
-	helpLine2 := "tab collapse  [ / ] prev/next group  v dashboard  enter clean  r rescan  q quit"
+	helpLine2 := "tab collapse  [ / ] prev/next group  v dashboard  enter clean  x empty/remove trash  r rescan  q quit"
 	help := helpStyle.Render(helpLine1 + "\n" + helpLine2)
 
 	flashLine := ""
@@ -824,9 +939,19 @@ func (m *model) renderDetail(width int) string {
 	}
 	r := m.rows[m.cursor]
 	if r.isHeader {
-		return mutedStyle.Render("  " + r.cat.String() + " group — press tab to collapse, a to select all in group")
+		hint := r.cat.String() + " group — press tab to collapse, a to select all in group"
+		if r.cat == scan.CatTrash {
+			hint += " · x to empty/remove (permanent)"
+		}
+		return mutedStyle.Render("  " + hint)
 	}
 	c := m.cands[r.candIdx]
+	if c.Category == scan.CatTrash {
+		actionLine := mutedStyle.Render("  remove (permanent)  "+c.Path) + "\n"
+		line2 := mutedStyle.Render("  " + c.Detail)
+		line3 := "  " + warnStyle.Render("already in Trash") + mutedStyle.Render("  •  press x to empty Trash or remove checked items")
+		return actionLine + line2 + "\n" + line3
+	}
 	safetyTag := ""
 	switch c.Safety {
 	case scan.SafetyRegenerable:
@@ -848,19 +973,43 @@ func (m *model) renderDetail(width int) string {
 }
 
 func (m *model) viewConfirm() string {
+	if m.pendingTrash {
+		return m.viewConfirmTrash()
+	}
 	verb := "Move to Trash"
 	hint := "Items will go to ~/.Trash — you can restore from Finder."
 	if m.hardDelete || m.cfg.Delete.Mode == "hard" {
 		verb = dangerStyle.Render("PERMANENTLY DELETE")
 		hint = "--hard mode: items will be removed immediately. No undo."
 	}
+	count := m.countSelectedCleanable()
 	body := fmt.Sprintf(
 		"%s  %s\n\n%d items, %s\n\n%s\n\n%s",
 		verb,
-		statBarStyle.Render(humanBytes(m.selectedBytes())),
-		m.countSelected(),
-		humanBytes(m.selectedBytes()),
+		statBarStyle.Render(humanBytes(m.cleanableBytes())),
+		count,
+		humanBytes(m.cleanableBytes()),
 		mutedStyle.Render(hint),
+		helpStyle.Render("y / enter  confirm     n / esc  cancel"),
+	)
+	return confirmBoxStyle.Render(body)
+}
+
+// viewConfirmTrash renders the confirm box for the separate, permanent Trash
+// action (empty-all or remove-checked).
+func (m *model) viewConfirmTrash() string {
+	count, bytes := m.trashTargetStats()
+	verb := dangerStyle.Render("PERMANENTLY EMPTY TRASH")
+	if !m.trashEmptyAll {
+		verb = dangerStyle.Render("PERMANENTLY REMOVE FROM TRASH")
+	}
+	body := fmt.Sprintf(
+		"%s  %s\n\n%d items, %s\n\n%s\n\n%s",
+		verb,
+		statBarStyle.Render(humanBytes(bytes)),
+		count,
+		humanBytes(bytes),
+		mutedStyle.Render("Items in the Trash cannot be restored after this."),
 		helpStyle.Render("y / enter  confirm     n / esc  cancel"),
 	)
 	return confirmBoxStyle.Render(body)
@@ -869,12 +1018,22 @@ func (m *model) viewConfirm() string {
 func (m *model) viewCleaning() string {
 	title := headerStyle.Render("spacestation")
 	verb := "cleaning…"
+	if m.pendingTrash {
+		verb = "removing from Trash…"
+	}
 	if m.cleanCancelled {
 		verb = warnStyle.Render("cancelling… (finishing current step)")
 	}
+	count, bytes := m.countSelectedCleanable(), m.cleanableBytes()
+	if m.pendingTrash {
+		count, bytes = m.trashTargetStats()
+	}
 	line := fmt.Sprintf("%s  %s  %s %d items, %s",
-		title, m.spinner.View(), verb, m.countSelected(), humanBytes(m.selectedBytes()))
+		title, m.spinner.View(), verb, count, humanBytes(bytes))
 	hint := "please wait — Finder is moving files to Trash    " + mutedStyle.Render("esc cancel · q quit")
+	if m.pendingTrash {
+		hint = "please wait — permanently removing Trash items    " + mutedStyle.Render("esc cancel · q quit")
+	}
 	if m.cleanCancelled {
 		hint = mutedStyle.Render("waiting for the in-flight step to wind down…")
 	}
@@ -894,6 +1053,9 @@ func (m *model) viewDone() string {
 	verb := "moved to Trash"
 	if m.hardDelete || m.cfg.Delete.Mode == "hard" {
 		verb = "permanently deleted"
+	}
+	if m.pendingTrash {
+		verb = "permanently removed from Trash"
 	}
 	summary := fmt.Sprintf("  %s %s across %d items in %s",
 		sizeStyle.Render(humanBytes(m.cleanedBytes)),
