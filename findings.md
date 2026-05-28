@@ -39,12 +39,6 @@ _(none open — see Resolved section at bottom)_
 
 **Fix:** include `(dev, ino)` from `syscall.Stat_t` in `sizeCacheEntry` and verify on hit. Cost: one extra `os.Stat` field per check, near-free.
 
-### H6. `score.Apply` mis-handles zero/future mtime
-**File:** `internal/score/score.go:21-22, 35-38`
-**Verification:** confirmed. `LastTouched` returns `time.Time{}` on stat failure (`recency.go:14`). `age := now.Sub(zeroTime)` is ~734,000 days; `age > minAge` is true; if `Safety == SafetyRegenerable`, the entry is **auto-selected** with the reason `"Stale 734159d, regenerable"`. That's a directory we couldn't stat being silently armed for deletion. Future-mtime (clock skew, restored backup) is the cosmetic mirror — negative age renders as `(-5d)` and never selects, less serious.
-
-**Fix:** `if c.LastTouched.IsZero() { c.Reason = "unknown age — not auto-selecting"; continue }` at the top of the loop. Optionally clamp future ages to 0.
-
 ### H8. `tea.WithMouseCellMotion()` enabled with zero mouse handlers
 **File:** `internal/tui/model.go:23`
 **Verification:** confirmed. Enabling mouse motion breaks native text-selection / copy-paste in most terminal emulators — users have to hold Option (iTerm) or Shift to copy text. There are zero `tea.MouseMsg` cases anywhere in Update.
@@ -253,6 +247,14 @@ Resolved (same commit as H1). `stageScanning`'s quit handler now calls `m.scanCa
 
 ### H7. `stageCleaning` swallows `ctrl+c`
 Resolved. `cleanup.Execute(ctx, …)`, `runCommand(parent, …)`, `trash.Move(ctx, …)`, `trash.Hard(ctx, …)`, and `emptyTrash(ctx, …)` all take a context now. The TUI's `executeClean` creates the context synchronously, stores `cleanCancel` on the model, and passes it into the Cmd goroutine. `stageCleaning` handles `esc`/`ctrl+c` (cancel and fall through to done view with partial results) and `q` (cancel and quit). `runCommand`'s timeout is derived from the parent ctx, so a cancel kills the in-flight subprocess via `exec.CommandContext`. The view hint advertises `esc cancel · q quit`, and flips to a "cancelling…" warning once the cancel has been issued. Test coverage for cleanup is deferred to Hy4.
+
+### H6. `score.Apply` mis-handles zero/future mtime
+Resolved. Two guards added at the top of the `score.Apply` loop:
+
+1. `LastTouched.IsZero() && Category != CatTrash` → set reason to `"unknown age — not auto-selecting"` and skip. A directory we couldn't `stat` no longer gets armed for deletion; Trash keeps its always-selectable exception.
+2. Future-mtime ages are clamped to `0` so the reason text reads `Active (0d)` instead of `(-5d)`.
+
+Added `internal/score/score_test.go` with 8 table-driven cases (zero mtime regenerable, zero mtime Trash, future mtime, stale regenerable, recent regenerable, old download, recent download, Trash). The test catches the original H6 bug and pins the new rule in place.
 
 ### M16. `SaveSizeCache` marshals the map without holding the lock
 Resolved (rolled into H1). `SaveSizeCache` now `RLock`s for the full duration of `json.Marshal` rather than releasing before the marshal. Multiple concurrent readers are still allowed; concurrent writers (CachedDirSize cache-misses) wait their turn. Eliminates the "concurrent map iter + write" panic that H1's improved rescan made reliably triggerable.

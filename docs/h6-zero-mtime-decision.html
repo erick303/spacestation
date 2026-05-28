@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>H6 — zero-mtime candidates should not auto-select</title>
+<style>
+  :root {
+    --fg: #1a1a1a;
+    --muted: #666;
+    --bg: #fafaf7;
+    --accent: #b94a48;
+    --rule: #e0ddd5;
+    --code-bg: #f1efe7;
+    --note-bg: #fdf6e3;
+  }
+  html { background: var(--bg); }
+  body {
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    line-height: 1.55;
+    max-width: 800px;
+    margin: 2.5rem auto;
+    padding: 0 1.25rem;
+  }
+  h1 { font-size: 1.75rem; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; }
+  h2 { font-size: 1.3rem; margin-top: 2.5rem; color: var(--accent); }
+  h3 { font-size: 1.05rem; margin-top: 1.6rem; }
+  p, li { font-size: 0.97rem; }
+  code { background: var(--code-bg); padding: 0.05em 0.35em; border-radius: 3px; font-size: 0.9em; }
+  pre {
+    background: var(--code-bg);
+    padding: 0.9rem 1rem;
+    border-radius: 4px;
+    overflow-x: auto;
+    font-size: 0.85rem;
+    line-height: 1.45;
+  }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; margin: 1rem 0; width: 100%; font-size: 0.93rem; }
+  th, td { border: 1px solid var(--rule); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: var(--code-bg); }
+  .note {
+    background: var(--note-bg);
+    border-left: 3px solid #d4a017;
+    padding: 0.7rem 1rem;
+    margin: 1rem 0;
+    font-size: 0.93rem;
+  }
+  .glossary dt { font-weight: 600; margin-top: 0.6rem; }
+  .glossary dd { margin-left: 1.2rem; color: #333; font-size: 0.93rem; }
+  .recommendation {
+    background: #e8f4ea;
+    border-left: 3px solid #2d7a3e;
+    padding: 0.9rem 1.1rem;
+    margin: 1.5rem 0;
+  }
+  .recommendation h3 { margin-top: 0; color: #2d7a3e; }
+  .toc { font-size: 0.92rem; color: var(--muted); }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<h1>H6 — zero-mtime candidates should not auto-select</h1>
+<p>This document walks through finding H6: a directory whose modification time we couldn't read silently gets armed for deletion, and decides how aggressively to fix it.</p>
+
+<nav class="toc"><strong>On this page:</strong> <a href="#glossary">Glossary</a> · <a href="#picture">The picture</a> · <a href="#options">Three options</a> · <a href="#recommendation">Recommendation</a></nav>
+
+<h2 id="glossary">Glossary</h2>
+<dl class="glossary">
+  <dt><code>mtime</code></dt>
+  <dd>Modification time — a timestamp the filesystem records every time a file or directory is changed. On macOS / Linux it's a Unix epoch second + nanoseconds.</dd>
+
+  <dt><code>LastTouched</code></dt>
+  <dd>A function in <code>internal/scan/recency.go</code>. Given a directory, it returns "when was anything in here last touched" — defined as the most recent mtime among the directory's immediate children (or the directory's own mtime if it's empty).</dd>
+
+  <dt><code>time.Time{}</code> (zero value)</dt>
+  <dd>Go's default <code>time.Time</code> when no value was ever set. It represents January 1 of year 1 CE — about 2025 years ago. Subtracting it from the current time gives a duration of roughly 739,000 days.</dd>
+
+  <dt><code>Candidate</code></dt>
+  <dd>A struct in <code>internal/scan/types.go</code> representing a single piece of reclaimable disk: a directory, the size in bytes, when it was last touched, what category it belongs to, and a "safety" flag (regenerable vs. user content).</dd>
+
+  <dt><code>SafetyRegenerable</code></dt>
+  <dd>A safety classification meaning "whatever tool produced this directory will recreate it on demand, so it's safe to delete." <code>node_modules</code>, <code>.next</code>, <code>~/.cargo/registry</code> all fall here.</dd>
+
+  <dt><code>score.Apply</code></dt>
+  <dd>A function in <code>internal/score/score.go</code> that walks the list of candidates and decides which ones should be auto-selected when the TUI opens. The selection rule for Regenerable items is "stale for at least 30 days" (configurable via <code>default_select_min_age_days</code>).</dd>
+
+  <dt><code>auto-selected</code></dt>
+  <dd>When spacestation launches, the candidate list comes up with checkboxes already ticked for "obviously safe" entries — Trash always, old Downloads, old regenerable build dirs. The user can untick before hitting <code>enter</code>, but if they don't pay close attention they trust the defaults.</dd>
+
+  <dt><code>EACCES</code></dt>
+  <dd>"Permission denied" — a kernel error returned when the process can't read a file or directory due to permissions.</dd>
+</dl>
+
+<h2 id="picture">The picture</h2>
+
+<p>Here's a real scenario. The scanner has just emitted a Candidate for <code>~/Library/Caches/com.apple.bird</code> (some Apple sync daemon's cache, categorised <code>CatSystemCache</code>, Safety <code>Regenerable</code>). The scanner then calls <code>LastTouched</code> on that path to fill in the recency field.</p>
+
+<pre>
+internal/scan/recency.go (current code)
+
+  func LastTouched(root string) time.Time {
+      info, err := os.Stat(root)
+      if err != nil {
+          return time.Time{}        ──┐
+      }                                │  zero value
+      best := info.ModTime()           │  flows out
+      ...                              │  here
+  }                                  ──┘
+
+Then in internal/score/score.go:
+
+  for i := range cs {
+      c := &cs[i]
+      age := now.Sub(c.LastTouched)   ──┐  now (2026) minus
+      ageDays := int(age / 24h)         │  year 1 → 739,000 days
+      switch {
+      ...
+      case c.Safety == SafetyRegenerable:
+          if age > minAge {             ──┐
+              c.Selected = true           │  739,000 &gt; 30: yes
+              c.Reason = fmt.Sprintf(    │  AUTO-SELECTED
+                  "Stale %dd, regenerable", ageDays)
+          }
+      }
+  }
+</pre>
+
+<p>Walk through what happens when <code>os.Stat</code> fails on this one path — maybe a sandbox kicked in, maybe the cache directory was deleted between the scanner emitting it and <code>LastTouched</code> running, maybe it's a system path that needs Full Disk Access:</p>
+
+<table>
+  <thead>
+    <tr><th>Step</th><th>State</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Scanner emits Candidate for <code>~/Library/Caches/com.apple.bird</code></td>
+      <td>Size: 240 MB. Category: <code>CatSystemCache</code>. Safety: <code>Regenerable</code>.</td>
+    </tr>
+    <tr>
+      <td>Scanner calls <code>LastTouched("~/Library/Caches/com.apple.bird")</code></td>
+      <td><code>os.Stat</code> returns <code>EACCES</code>. <code>LastTouched</code> returns <code>time.Time{}</code>.</td>
+    </tr>
+    <tr>
+      <td><code>score.Apply</code> processes the candidate</td>
+      <td><code>age = now.Sub(time.Time{})</code> ≈ 739,000 days.</td>
+    </tr>
+    <tr>
+      <td>Auto-select check fires</td>
+      <td><code>age &gt; 30 days</code> → true. Candidate marked <code>Selected: true</code>.</td>
+    </tr>
+    <tr>
+      <td>User opens the TUI</td>
+      <td>Row reads: <code>[x] ~/Library/Caches/com.apple.bird   240 MB   Stale 739000d, regenerable</code></td>
+    </tr>
+    <tr>
+      <td>User hits <code>enter</code> trusting the defaults</td>
+      <td>Directory we couldn't even <code>stat</code> goes to the Trash.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note"><strong>Why this is uncomfortable:</strong> the tool's safety story is "we read mtime, we age-out anything that's been quiet for ≥30 days." When mtime is missing, we shouldn't apply that story — we should say "we don't know how old this is, ask the user." Today's behaviour does the opposite: it treats unknown as <em>maximum-stale</em>.</div>
+
+<p>There's a cosmetic mirror: if mtime is in the <em>future</em> — clock skew, a restored backup with weird timestamps, an NTP glitch — then <code>age</code> is negative. <code>negative &gt; 30 days</code> is false, so it doesn't auto-select. But the reason text shows <code>Active (-5d) — may rebuild from scratch if deleted</code>, which is ugly. Not dangerous, just sloppy.</p>
+
+<h2 id="options">Three options</h2>
+
+<h3>Option A — minimal patch (zero-mtime only)</h3>
+<p>Add one guard at the top of the <code>score.Apply</code> loop. If <code>LastTouched</code> is the zero value, set a "unknown age — not auto-selecting" reason and <code>continue</code>. Leave the future-mtime cosmetic bug alone. Don't add tests.</p>
+
+<table>
+  <thead><tr><th>Pros</th><th>Cons</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>
+        <ul>
+          <li>~3 lines of code; trivially reviewable.</li>
+          <li>Fixes the actual safety issue: nothing auto-selects without a real mtime.</li>
+          <li>No new abstractions; the existing switch still does the work it did.</li>
+        </ul>
+      </td>
+      <td>
+        <ul>
+          <li>Future-mtime entries still render as <code>(-5d)</code> in the reason text. Confusing for anyone with clock skew.</li>
+          <li>No regression guard — a future refactor of the loop could accidentally drop the zero-check and reintroduce the bug.</li>
+          <li>Leaves <code>score</code> at zero test coverage (the finding doc names this as the canary that "would have caught H6 today").</li>
+        </ul>
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Option B — recommended scope (zero + future + test)</h3>
+<p>The guard from Option A, <em>plus</em>: clamp negative ages to <code>0</code> before formatting reasons, so a future-mtime entry reads <code>Active (0d)</code> instead of <code>(-5d)</code>. Also add a small table-driven test for <code>score.Apply</code> covering: zero mtime, future mtime, stale Regenerable, recent Regenerable, Trash, Downloads. <code>score.Apply</code> is pure (no FS, no exec, no time mocking) so the test stays cheap.</p>
+
+<table>
+  <thead><tr><th>Pros</th><th>Cons</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>
+        <ul>
+          <li>Closes both bugs the finding called out: zero (dangerous) and future (cosmetic) in one go.</li>
+          <li>The test makes the rule machine-readable. Any future change to <code>Apply</code> that flips the zero-mtime behaviour fails CI.</li>
+          <li>Starts filling the test-coverage gap that Hy4 (later in the list) is dedicated to. Earlier coverage = less pressure on the Hy4 cycle.</li>
+          <li>Still small (~30 lines added including the test).</li>
+        </ul>
+      </td>
+      <td>
+        <ul>
+          <li>Slightly larger commit than strictly required to close the safety bug.</li>
+          <li>"Cosmetic mirror" fix and "test scaffolding" technically aren't the H6 finding — purists could argue they belong in their own commits.</li>
+        </ul>
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Option C — defensive overhaul (fix LastTouched too)</h3>
+<p>Treat the bug as being upstream in <code>LastTouched</code>: change it to never return the zero value. Either fall back to <code>time.Now()</code> on stat failure (treats unknown as "just now", which means Regenerable items won't auto-select unless they have other signal), or return a sentinel and have callers explicitly check. Then also do everything in Option B.</p>
+
+<table>
+  <thead><tr><th>Pros</th><th>Cons</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>
+        <ul>
+          <li>Belt-and-suspenders: even if a future caller forgets to check, <code>LastTouched</code> can't poison them.</li>
+          <li>The semantics of <code>LastTouched</code> become unambiguous — "this always returns a usable timestamp."</li>
+        </ul>
+      </td>
+      <td>
+        <ul>
+          <li>Changes the contract of <code>LastTouched</code>. Anything else that calls it (the TUI's "<code>89d ago</code>" rendering, possibly future code) inherits the new semantics — some of them may want to know "we don't actually know" rather than getting a fake answer.</li>
+          <li>Falling back to <code>time.Now()</code> hides errors instead of surfacing them. The user sees "<code>just now</code>" in the age column for a directory we couldn't read; that's a different kind of dishonest.</li>
+          <li>Bigger diff, more places to think about. Easier to land in a single PR that's actually focused on this.</li>
+        </ul>
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="recommendation">Recommendation</h2>
+
+<div class="recommendation">
+<h3>Option B — zero + future + test</h3>
+<p>The scope is right: it closes both bugs the finding actually called out, and it lays down a regression guard for the loop that mis-handled them. <code>score.Apply</code> is one of the cheapest things in this codebase to test (pure function, no FS, no time mocking — just craft Candidates and assert), so the cost-benefit on adding a test now versus during the Hy4 cycle later is overwhelmingly in favour of now.</p>
+<p>Why not Option A: it leaves <code>(-5d)</code> in the user-facing reason text, and it leaves zero test coverage for the function whose bug we just fixed. Both are small things, but they're the difference between "patched" and "patched and guarded."</p>
+<p>Why not Option C: changing <code>LastTouched</code>'s contract is the wrong layer. The semantics "zero means we couldn't read it" is actually fine — the caller's job is to handle that gracefully. Replacing the zero with a fake <code>time.Now()</code> trades one quiet wrongness for another and complicates anything else that wants to know whether the timestamp is real.</p>
+</div>
+
+<p>Looking for: a thumbs-up on Option B, or a steer toward A/C.</p>
+
+</body>
+</html>

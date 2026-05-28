@@ -18,7 +18,22 @@ func Apply(cs []scan.Candidate, cfg config.Config) {
 
 	for i := range cs {
 		c := &cs[i]
+		// Zero mtime means LastTouched() couldn't stat the path (EACCES,
+		// vanished mid-scan, sandbox). Treating that as "unknown" rather
+		// than "739000 days old" means we never auto-select a directory
+		// we couldn't actually read. Trash is the one exception — it's
+		// always safe to empty regardless of mtime.
+		if c.LastTouched.IsZero() && c.Category != scan.CatTrash {
+			c.Reason = "unknown age — not auto-selecting"
+			c.Normalize()
+			continue
+		}
 		age := now.Sub(c.LastTouched)
+		// Future mtime (clock skew, restored backup, NTP glitch) — clamp
+		// so the reason text doesn't render "(-5d)".
+		if age < 0 {
+			age = 0
+		}
 		ageDays := int(age / (24 * time.Hour))
 
 		switch {
