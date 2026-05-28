@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime/debug"
 	"strings"
 
 	"github.com/erick303/spacestation/internal/config"
@@ -22,10 +23,16 @@ func main() {
 		noDownloads = flag.Bool("no-downloads", false, "skip ~/Downloads")
 		noTrash     = flag.Bool("no-trash", false, "skip ~/.Trash")
 		showConfig  = flag.Bool("config", false, "print effective config path and exit")
+		showVersion = flag.Bool("version", false, "print version and exit")
 		scanRoot    rootFlag
 	)
 	flag.Var(&scanRoot, "scan-root", "additional root to scan (repeatable; overrides config when set)")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(versionString())
+		return
+	}
 
 	cfg, cfgPath, err := config.Load()
 	if err != nil {
@@ -64,6 +71,52 @@ func (r *rootFlag) String() string { return strings.Join(*r, ",") }
 func (r *rootFlag) Set(s string) error {
 	*r = append(*r, s)
 	return nil
+}
+
+func versionString() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "spacestation dev"
+	}
+
+	version := info.Main.Version
+	// "(devel)", empty, or a v0.0.0-<ts>-<sha> pseudo-version all mean "no
+	// tagged release" — collapse to "dev" and let the VCS suffix carry detail.
+	if version == "" || version == "(devel)" || strings.HasPrefix(version, "v0.0.0-") {
+		version = "dev"
+	}
+
+	var revision, date string
+	var dirty bool
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			revision = s.Value
+		case "vcs.time":
+			date = s.Value
+		case "vcs.modified":
+			dirty = s.Value == "true"
+		}
+	}
+
+	// Build the "(short-sha[-dirty], date)" suffix when VCS info is present.
+	var detail string
+	if revision != "" {
+		short := revision
+		if len(short) > 7 {
+			short = short[:7]
+		}
+		if dirty {
+			short += "-dirty"
+		}
+		if date != "" {
+			detail = fmt.Sprintf(" (%s, %s)", short, date)
+		} else {
+			detail = fmt.Sprintf(" (%s)", short)
+		}
+	}
+
+	return "spacestation " + version + detail
 }
 
 func runJSON(cfg config.Config, hard, dry bool) {
