@@ -2,7 +2,6 @@ package scan
 
 import (
 	"os"
-	"path/filepath"
 	"time"
 )
 
@@ -20,7 +19,7 @@ func LastTouched(root string) time.Time {
 		return best
 	}
 	for _, e := range entries {
-		ci, err := os.Lstat(filepath.Join(root, e.Name()))
+		ci, err := e.Info()
 		if err != nil {
 			continue
 		}

@@ -45,12 +45,6 @@ _(none open — see Resolved section at bottom)_
 
 **Fix:** bounded child semaphore (`make(chan struct{}, workers)`).
 
-### M13. `recency.go` does an extra `Lstat` per entry
-**File:** `internal/scan/recency.go:23`
-**Verification:** confirmed. `DirEntry.Info()` returns the already-populated stat info (Lstat semantics on Unix-like) with no extra syscall on most platforms.
-
-**Fix:** replace `os.Lstat(filepath.Join(root, e.Name()))` with `e.Info()`.
-
 ### M15. Initial walk goroutine is unnecessary
 **Files:** `internal/scan/scan.go:225-230`, `internal/scan/size.go:57-62`
 **Verification:** confirmed. Both spawn a goroutine that the caller immediately waits for via `wg.Wait()`. Just call `walk(root)` directly on the caller's goroutine (still need `wg.Add(1)` since `walk` defers `wg.Done()`).
@@ -126,6 +120,9 @@ After steps 1–4 the tool is honest about what it does. After 5–8 the codebas
 ---
 
 ## Resolved
+
+### M13. `recency.go` does an extra `Lstat` per entry
+Resolved. `LastTouched` now calls `e.Info()` on the `os.DirEntry` instead of doing a fresh `os.Lstat(filepath.Join(root, e.Name()))`. On Unix-like platforms `DirEntry.Info()` returns the stat the directory read already populated, saving one syscall per entry. `path/filepath` import dropped — no longer used.
 
 ### L3. README key table missing several bindings
 Resolved. README's keys table now covers `g / G` (top/bottom, also `home`/`end`), `[ / ]` (jump to previous/next group header), `pgup`/`pgdn`, `x` (permanent Trash action — remove checked items, or empty whole Trash if none checked), and `v` (toggle dashboard). `q / ctrl+c` are grouped together since both quit.
