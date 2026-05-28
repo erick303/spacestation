@@ -1,6 +1,14 @@
 # spacestation
 
+[![CI](https://github.com/erick303/spacestation/actions/workflows/ci.yml/badge.svg)](https://github.com/erick303/spacestation/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/erick303/spacestation)](https://goreportcard.com/report/github.com/erick303/spacestation)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A developer-aware disk cleanup tool for macOS. Single Go binary, terminal UI, knows how each ecosystem cleans itself up.
+
+![spacestation TUI](docs/hero.png)
+
+> Demo (animated): [`docs/demo.gif`](docs/demo.gif) — regenerate both with `vhs docs/demo.tape`.
 
 ```
 spacestation ──────────────────────────────────────  42.1 GB reclaimable
