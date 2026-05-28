@@ -371,7 +371,13 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// actually block, but we pass it through for symmetry.
 			prevCancel := m.scanCancel
 			prevFinished := m.scanFinished
+			// Carry the terminal size across the reset: Bubble Tea only
+			// emits WindowSizeMsg at startup / on resize, never on rescan,
+			// so a fresh model would render with height 0 and clamp the
+			// list to its 5-line minimum.
+			w, h := m.width, m.height
 			*m = *newModel(m.cfg, m.hardDelete)
+			m.width, m.height = w, h
 			return m, m.initWithPrev(prevCancel, prevFinished)
 		}
 		return m, nil
@@ -460,7 +466,11 @@ func (m *model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// invariant explicit.
 		prevCancel := m.scanCancel
 		prevFinished := m.scanFinished
+		// Carry the terminal size across the reset — no WindowSizeMsg
+		// arrives on rescan, so otherwise the list clamps to 5 lines.
+		w, h := m.width, m.height
 		*m = *newModel(m.cfg, m.hardDelete)
+		m.width, m.height = w, h
 		return m, m.initWithPrev(prevCancel, prevFinished)
 	case "v":
 		m.dashboardOn = !m.dashboardOn
