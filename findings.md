@@ -59,12 +59,6 @@ _(none open — see Resolved section at bottom)_
 
 ## LOW — UX & polish
 
-### L1. `c` "clear-all" is one key from `ctrl+c`
-**File:** `internal/tui/model.go:287`
-**Verification:** confirmed. Reflexively hitting `c` to "cancel" silently nukes the entire selection with no undo. The flash hint that fires on enter-with-zero-selected (`model.go:294-295`) is the only safety net.
-
-**Fix:** remap to `X` or `shift+C`, or require a two-press confirmation analogous to the group-toggle arming at `model.go:316-323`. At minimum, set a flash like `"Cleared %d selections (press u/A to undo)"`.
-
 ### L2. No `?` help / no `/` filter / no `o` open-in-Finder
 **File:** keybindings in `internal/tui/model.go:245-305`
 **Verification:** confirmed. Two-line help at the bottom covers the basics; for a 500+ row list with 14 bindings the conventions are a `?` modal, `/` filter, and `o` reveal. The list also has no scroll-position indicator.
@@ -116,6 +110,9 @@ After steps 1–4 the tool is honest about what it does. After 5–8 the codebas
 ---
 
 ## Resolved
+
+### L1. `c` "clear-all" is one key from `ctrl+c`
+Resolved. `c` now uses the same two-press arm pattern as space-on-a-group-header: first press flashes "Press c again to clear all N selections" and arms a 3-second window; second press within the window commits. With nothing selected, the arm is skipped and a "Nothing selected to clear." flash fires instead. Added `armedClearAll` + `armedClearAllExpiry` fields on the model and reset them in `resetForRescan` alongside the existing arm state.
 
 ### M15. Initial walk goroutine is unnecessary
 Resolved. In both `walkProjects` (scan.go) and `DirSize` (size.go) the initial walk was spawned in a goroutine that the caller immediately blocked on via `wg.Wait()` — a no-op detour through a goroutine plus a wasted semaphore slot. Both call sites now do `wg.Add(1); walk(root); wg.Wait()` directly. The recursive bodies still spawn goroutines and take sem slots normally; this only collapses the redundant entrypoint.

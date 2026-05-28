@@ -105,6 +105,12 @@ type model struct {
 	armedGroupActive bool
 	armedExpiry      time.Time
 
+	// "press c again to confirm clear-all" arm state — c is one key from
+	// ctrl+c, so a reflexive c used to nuke the entire selection with no
+	// undo. The two-press arm mirrors the group-toggle pattern above.
+	armedClearAll       bool
+	armedClearAllExpiry time.Time
+
 	// dashboard
 	dashboardOn bool
 	diskUsage   scan.DiskUsage
@@ -176,6 +182,8 @@ func (m *model) resetForRescan() {
 
 	m.armedGroupActive = false
 	m.armedExpiry = time.Time{}
+	m.armedClearAll = false
+	m.armedClearAllExpiry = time.Time{}
 
 	m.diskUsage = scan.DiskUsage{}
 }
@@ -479,6 +487,23 @@ func (m *model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "A":
 		m.selectAll(true)
 	case "c":
+		// Two-press confirmation: c is one key away from ctrl+c, so a
+		// reflexive c used to silently nuke the entire selection. First
+		// press arms; second press within 3s commits.
+		armed := m.armedClearAll && time.Now().Before(m.armedClearAllExpiry)
+		if !armed {
+			n := m.countSelected()
+			if n == 0 {
+				// Nothing to clear — no point arming.
+				m.setFlash("Nothing selected to clear.")
+				break
+			}
+			m.armedClearAll = true
+			m.armedClearAllExpiry = time.Now().Add(3 * time.Second)
+			m.setFlash(fmt.Sprintf("Press c again to clear all %d selections", n))
+			break
+		}
+		m.armedClearAll = false
 		m.selectAll(false)
 	case "tab":
 		m.toggleCollapseAtCursor()
