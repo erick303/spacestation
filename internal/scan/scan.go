@@ -83,13 +83,13 @@ func Run(ctx context.Context, opts Options, progress chan<- Progress) []Candidat
 		go func() {
 			defer topWG.Done()
 			sendProgress(Progress{Stage: "walking", Message: "fixed paths"})
-			probeFixedPaths(opts.Cfg, opts.Workers, addCandidate)
+			probeFixedPaths(ctx, opts.Cfg, opts.Workers, addCandidate)
 		}()
 		topWG.Add(1)
 		go func() {
 			defer topWG.Done()
 			sendProgress(Progress{Stage: "walking", Message: "ecosystem cleanups"})
-			probeSmart(opts.Cfg, addCandidate)
+			probeSmart(ctx, opts.Cfg, addCandidate)
 		}()
 	}
 
@@ -98,7 +98,7 @@ func Run(ctx context.Context, opts Options, progress chan<- Progress) []Candidat
 		go func() {
 			defer topWG.Done()
 			sendProgress(Progress{Stage: "walking", Message: "Downloads"})
-			probeDownloads(opts.Cfg, opts.Workers, addCandidate)
+			probeDownloads(ctx, opts.Cfg, opts.Workers, addCandidate)
 		}()
 	}
 
@@ -106,7 +106,7 @@ func Run(ctx context.Context, opts Options, progress chan<- Progress) []Candidat
 		topWG.Add(1)
 		go func() {
 			defer topWG.Done()
-			probeTrash(opts.Workers, addCandidate)
+			probeTrash(ctx, opts.Workers, addCandidate)
 		}()
 	}
 
@@ -195,7 +195,7 @@ func walkProjects(ctx context.Context, root string, workers int, emit func(Candi
 				continue
 			}
 			if cat, detail, matched := classifyDir(name); matched {
-				size := CachedDirSize(full, workers)
+				size := CachedDirSize(ctx, full, workers)
 				if size == 0 {
 					continue
 				}

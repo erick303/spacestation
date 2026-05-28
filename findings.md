@@ -17,12 +17,6 @@ _(none open — see Resolved section at bottom)_
 
 ## HIGH — correctness bugs
 
-### H1. Rescan leaks the previous scan's goroutine
-**File:** `internal/tui/model.go:237, 299` (rescan); `internal/tui/model.go:132-143` (`startScan`)
-**Verification:** confirmed. `startScan` runs `scan.Run` synchronously inside a `tea.Cmd` closure with `defer cancel()` — meaning the context is cancelled *only* when scan.Run returns naturally. On `r` rescan, `*m = *newModel(...)` replaces the model and re-issues `Init()`, but the previous `scan.Run` keeps walking the filesystem to completion, still holding workers and FDs. Every rescan during a scan compounds this.
-
-**Fix:** Store the `cancel` func on the model. On rescan / quit, call cancel before reassigning. Thread `ctx` into `DirSize`/`CachedDirSize` so the walkers actually observe the cancel (today only `walkProjects` checks `ctx.Done()`, and only at the top of each `walk` call — `DirSize` doesn't take a ctx at all).
-
 ### H2. `q` during scanning doesn't cancel the scan goroutine
 **File:** `internal/tui/model.go:208-209, 132-143`
 **Verification:** confirmed, same root cause as H1. `stageScanning` handles `q`/`ctrl+c` by returning `tea.Quit`, which tears down the program — but the scan goroutine launched by the tea.Cmd is detached and runs to completion. On a large cold scan you can't actually quit.
@@ -169,12 +163,6 @@ _(none open — see Resolved section at bottom)_
 
 ## MEDIUM — defensive / latent
 
-### M16. `SaveSizeCache` marshals the map without holding the lock
-**File:** `internal/scan/sizecache.go:68-90`
-**Verification:** confirmed but currently safe. `c.mu.RLock(); entries := c.entries; c.mu.RUnlock()` — `entries` is a map reference, not a copy. `json.Marshal` iterates it without the lock. Current call sites (`tui/model.go:140, 505`, `main.go:72`) all run after the scan completes, so no concurrent writer exists. Latent: any future concurrent caller will panic on concurrent map iter+write.
-
-**Fix:** either hold `RLock` across the marshal, or copy the map under the lock.
-
 ### M17. AppleScript path escaping uses `%q`, not AppleScript escaping
 **File:** `internal/trash/trash.go:33`
 **Verification:** partially confirmed; severity downgraded. Go's `%q` and AppleScript string syntax happen to agree on the common escapes (`\"`, `\\`, `\n`, `\r`, `\t`) and on printable Unicode. Where they differ: Go's `%q` emits `\xNN` for non-printable bytes; AppleScript doesn't support `\x`. macOS filenames can't contain NULL but can contain other control chars (rare but possible). The realistic failure mode is the batched osascript returning an error → previously this triggered the silent Hard-delete fallback (see C1).
@@ -268,3 +256,9 @@ After steps 1–4 the tool is honest about what it does. After 5–8 the codebas
 
 ### C1. Silent Trash→Hard escalation in `cleanup.Execute`
 Resolved. `cleanup.Execute` no longer escalates Trash failures to `RemoveAll`. Per-path Move errors now flow through to the done view, which already iterates and prints them (`internal/tui/model.go:805-811`). Trash mode now matches the confirm-hint promise.
+
+### H1. Rescan leaks the previous scan's goroutine
+Resolved. `DirSize`, `CachedDirSize`, and the four probe orchestrators (`probeFixedPaths`, `probeSmart`, `probeDownloads`, `probeTrash`) now take a `context.Context` so cancellation actually stops in-flight work. The model owns a `scanCancel` + `scanFinished` pair; rescan handlers capture them before resetting, and `beginScan` waits for the old scan to drain inside its Cmd goroutine before starting the new one. Both `scanProgressMsg` and `scanDoneMsg` carry the originating channel ref so stale messages from a cancelled scan can't pollute the new scan's UI. `TestDirSizeRespectsContext` guards against regression.
+
+### M16. `SaveSizeCache` marshals the map without holding the lock
+Resolved (rolled into H1). `SaveSizeCache` now `RLock`s for the full duration of `json.Marshal` rather than releasing before the marshal. Multiple concurrent readers are still allowed; concurrent writers (CachedDirSize cache-misses) wait their turn. Eliminates the "concurrent map iter + write" panic that H1's improved rescan made reliably triggerable.

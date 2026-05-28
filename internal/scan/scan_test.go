@@ -131,10 +131,38 @@ func TestDirSize(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got := DirSize(dir, 2)
+	got := DirSize(context.Background(), dir, 2)
 	want := int64(135)
 	if got != want {
 		t.Errorf("DirSize = %d, want %d", got, want)
+	}
+}
+
+func TestDirSizeRespectsContext(t *testing.T) {
+	// Build a small tree. Cancellation is what matters, not how big.
+	dir := t.TempDir()
+	for i := 0; i < 20; i++ {
+		sub := filepath.Join(dir, "d"+itoa(i))
+		if err := os.MkdirAll(sub, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for j := 0; j < 10; j++ {
+			if err := os.WriteFile(filepath.Join(sub, "f"+itoa(j)), []byte("x"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	// Cancel before the call so we don't rely on timing races.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	start := time.Now()
+	_ = DirSize(ctx, dir, 4)
+	elapsed := time.Since(start)
+
+	if elapsed > 50*time.Millisecond {
+		t.Errorf("DirSize with pre-cancelled ctx took %v, expected ~instant", elapsed)
 	}
 }
 

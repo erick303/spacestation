@@ -1,6 +1,7 @@
 package scan
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sync"
@@ -10,7 +11,11 @@ import (
 // DirSize computes total size of `root` using a parallel BFS with a bounded
 // worker pool. Errors on individual entries (EACCES, races) are silently
 // skipped so the result is best-effort. Symlinks are not followed.
-func DirSize(root string, workers int) int64 {
+//
+// Cancellation: walkers check ctx.Done() at the top of each per-directory
+// step, so a cancel propagates within one ReadDir tick per worker (typically
+// a few ms).
+func DirSize(ctx context.Context, root string, workers int) int64 {
 	if workers < 1 {
 		workers = 4
 	}
@@ -21,6 +26,9 @@ func DirSize(root string, workers int) int64 {
 	var walk func(p string)
 	walk = func(p string) {
 		defer wg.Done()
+		if ctx.Err() != nil {
+			return
+		}
 		entries, err := os.ReadDir(p)
 		if err != nil {
 			return

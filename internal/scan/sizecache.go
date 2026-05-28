@@ -1,6 +1,7 @@
 package scan
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -65,34 +66,39 @@ func loadGlobalCache() *sizeCache {
 
 // SaveSizeCache flushes pending size-cache updates to disk. The TUI/CLI
 // calls this once at end-of-scan.
+//
+// The RLock is held across json.Marshal so a concurrent CachedDirSize call
+// (write under Lock) can't trip "concurrent map iteration and write" in the
+// runtime. RLock allows multiple concurrent readers; writers wait their turn.
+// (M16)
 func SaveSizeCache() error {
 	c := loadGlobalCache()
 	c.mu.RLock()
-	dirty := c.dirty
-	entries := c.entries
-	path := c.path
-	c.mu.RUnlock()
-	if !dirty || path == "" {
+	defer c.mu.RUnlock()
+	if !c.dirty || c.path == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(c.path), 0o755); err != nil {
 		return err
 	}
-	data, err := json.Marshal(entries)
+	data, err := json.Marshal(c.entries)
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
+	tmp := c.path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	return os.Rename(tmp, c.path)
 }
 
 // CachedDirSize returns the size of `root`, using a persistent cache keyed
 // by (path, dir mtime). If the cache is stale or empty, DirSize is called
 // and the result stored.
-func CachedDirSize(root string, workers int) int64 {
+func CachedDirSize(ctx context.Context, root string, workers int) int64 {
+	if ctx.Err() != nil {
+		return 0
+	}
 	info, err := os.Stat(root)
 	if err != nil {
 		return 0
@@ -107,7 +113,11 @@ func CachedDirSize(root string, workers int) int64 {
 		return e.Size
 	}
 
-	size := DirSize(root, workers)
+	size := DirSize(ctx, root, workers)
+	if ctx.Err() != nil {
+		// Don't poison the cache with a partial result from a cancelled walk.
+		return 0
+	}
 	c.mu.Lock()
 	c.entries[root] = sizeCacheEntry{Mtime: mtime, Size: size, At: time.Now()}
 	c.dirty = true

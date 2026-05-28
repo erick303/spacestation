@@ -58,7 +58,15 @@ type model struct {
 	progressFound int
 	progressBytes int64
 	scanDone      bool
+
+	// scan lifecycle: progressCh is the channel for the *current* scan;
+	// scanCancel cancels it; scanFinished is closed by the scan goroutine
+	// when it has fully returned (cands sent, size cache saved). A rescan
+	// must wait on the old scanFinished before starting the new scan, so
+	// that the global size cache isn't being mutated by two scans at once.
 	progressCh    chan scan.Progress
+	scanCancel    context.CancelFunc
+	scanFinished  chan struct{}
 	cands         []scan.Candidate
 
 	// browsing state
@@ -103,18 +111,32 @@ func newModel(cfg config.Config, hard bool) *model {
 }
 
 func (m *model) Init() tea.Cmd {
+	return m.initWithPrev(nil, nil)
+}
+
+// initWithPrev is Init parameterised over an optional previous scan to
+// cancel and drain. Used by rescan handlers, which capture the previous
+// scan's handles before resetting the model.
+func (m *model) initWithPrev(prevCancel context.CancelFunc, prevFinished chan struct{}) tea.Cmd {
 	return tea.Batch(
 		m.spinner.Tick,
-		m.startScan(),
+		m.beginScan(prevCancel, prevFinished),
 		m.pollProgress(),
 		tickEvery(),
 	)
 }
 
 // --- messages ---
+// Both scan messages carry the channel they originated from. Update drops
+// any message whose channel doesn't match m.progressCh — that way, a
+// cancelled scan's last in-flight Progress can't pollute the new scan's UI.
 
-type scanProgressMsg scan.Progress
+type scanProgressMsg struct {
+	ch chan scan.Progress
+	p  scan.Progress
+}
 type scanDoneMsg struct {
+	ch      chan scan.Progress
 	cands   []scan.Candidate
 	elapsed time.Duration
 }
@@ -129,26 +151,45 @@ func tickEvery() tea.Cmd {
 	return tea.Tick(150*time.Millisecond, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
-func (m *model) startScan() tea.Cmd {
+// beginScan starts a new scan. If a previous scan is still alive (prevCancel
+// non-nil), it is cancelled and its goroutine is fully drained before the
+// new scan starts. The wait happens *inside* the returned Cmd's goroutine
+// so the tea event loop never blocks.
+func (m *model) beginScan(prevCancel context.CancelFunc, prevFinished chan struct{}) tea.Cmd {
+	ctx, cancel := context.WithCancel(context.Background())
+	m.scanCancel = cancel
+	finished := make(chan struct{})
+	m.scanFinished = finished
+	ch := m.progressCh
+	cfg := m.cfg
 	return func() tea.Msg {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		if prevCancel != nil {
+			prevCancel()
+			if prevFinished != nil {
+				<-prevFinished
+			}
+		}
 		start := time.Now()
-		cands := scan.Run(ctx, scan.Options{Cfg: m.cfg}, m.progressCh)
-		score.Apply(cands, m.cfg)
+		cands := scan.Run(ctx, scan.Options{Cfg: cfg}, ch)
+		score.Apply(cands, cfg)
 		// Persist size-cache so subsequent scans skip walking unchanged trees.
 		_ = scan.SaveSizeCache()
-		return scanDoneMsg{cands: cands, elapsed: time.Since(start)}
+		close(finished)
+		return scanDoneMsg{ch: ch, cands: cands, elapsed: time.Since(start)}
 	}
 }
 
 func (m *model) pollProgress() tea.Cmd {
+	// Capture the channel ref so the message can identify which scan it
+	// came from. A cancelled scan's last emit ends up tagged with the old
+	// channel and gets dropped by Update.
+	ch := m.progressCh
 	return func() tea.Msg {
-		p, ok := <-m.progressCh
+		p, ok := <-ch
 		if !ok {
 			return nil
 		}
-		return scanProgressMsg(p)
+		return scanProgressMsg{ch: ch, p: p}
 	}
 }
 
@@ -175,14 +216,20 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tickEvery()
 
 	case scanProgressMsg:
-		m.progressMsg = msg.Message
-		if msg.Found > 0 {
-			m.progressFound = msg.Found
-			m.progressBytes = msg.Bytes
+		if msg.ch != m.progressCh {
+			return m, nil // stale: from a cancelled scan
+		}
+		m.progressMsg = msg.p.Message
+		if msg.p.Found > 0 {
+			m.progressFound = msg.p.Found
+			m.progressBytes = msg.p.Bytes
 		}
 		return m, m.pollProgress()
 
 	case scanDoneMsg:
+		if msg.ch != m.progressCh {
+			return m, nil // stale: from a cancelled scan
+		}
 		m.cands = msg.cands
 		m.scanElapsed = msg.elapsed
 		m.scanDone = true
@@ -206,6 +253,13 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case stageScanning:
 		switch msg.String() {
 		case "q", "ctrl+c", "esc":
+			// Cancel the in-flight scan so its goroutines can unwind
+			// before the process exits — frees FDs and lets the
+			// size-cache write that fires at the tail of scan.Run
+			// finish cleanly.
+			if m.scanCancel != nil {
+				m.scanCancel()
+			}
 			return m, tea.Quit
 		}
 		return m, nil
@@ -233,9 +287,14 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "q", "enter", "esc", "ctrl+c":
 			return m, tea.Quit
 		case "r":
-			// rescan
+			// In stageDone the previous scan has fully returned (we
+			// reached this stage via scanDoneMsg → cleanDoneMsg).
+			// scanFinished is already closed so the new scan won't
+			// actually block, but we pass it through for symmetry.
+			prevCancel := m.scanCancel
+			prevFinished := m.scanFinished
 			*m = *newModel(m.cfg, m.hardDelete)
-			return m, m.Init()
+			return m, m.initWithPrev(prevCancel, prevFinished)
 		}
 		return m, nil
 	}
@@ -295,9 +354,14 @@ func (m *model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.setFlash("No items selected. Press space to select, A for all, then enter.")
 		}
 	case "r":
-		// rescan
+		// Rescan from browse stage. The previous scan goroutine is
+		// already done (we're past scanDoneMsg) so prevCancel/prevFinished
+		// are no-ops, but threading them through keeps the lifecycle
+		// invariant explicit.
+		prevCancel := m.scanCancel
+		prevFinished := m.scanFinished
 		*m = *newModel(m.cfg, m.hardDelete)
-		return m, m.Init()
+		return m, m.initWithPrev(prevCancel, prevFinished)
 	case "v":
 		m.dashboardOn = !m.dashboardOn
 	}

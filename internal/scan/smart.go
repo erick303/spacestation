@@ -18,9 +18,9 @@ import (
 // probeSmart runs all per-ecosystem "intelligent" probes in parallel.
 // Each probe checks whether its tool exists; if not, it returns and the
 // existing fixed-path probe (in fixed.go) covers the dumb fallback.
-func probeSmart(_ config.Config, emit func(Candidate)) {
+func probeSmart(ctx context.Context, _ config.Config, emit func(Candidate)) {
 	var wg sync.WaitGroup
-	probes := []func(func(Candidate)){
+	probes := []func(context.Context, func(Candidate)){
 		probeDockerSmart,
 		probeBrewSmart,
 		probeGoSmart,
@@ -33,19 +33,23 @@ func probeSmart(_ config.Config, emit func(Candidate)) {
 		probeXcodeSimulatorsSmart,
 	}
 	for _, p := range probes {
+		if ctx.Err() != nil {
+			break
+		}
 		p := p
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			p(emit)
+			p(ctx, emit)
 		}()
 	}
 	wg.Wait()
 }
 
-// runWithTimeout runs cmd with a hard timeout and returns combined output.
-func runWithTimeout(name string, args []string, timeout time.Duration) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+// runWithTimeout runs cmd with a hard timeout, derived from `parent` so the
+// command is also cancelled when the parent scan is cancelled.
+func runWithTimeout(parent context.Context, name string, args []string, timeout time.Duration) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	return exec.CommandContext(ctx, name, args...).Output()
 }
@@ -89,11 +93,11 @@ func parseDockerSize(s string) int64 {
 	return 0
 }
 
-func probeDockerSmart(emit func(Candidate)) {
+func probeDockerSmart(ctx context.Context, emit func(Candidate)) {
 	if !has("docker") {
 		return
 	}
-	out, err := runWithTimeout("docker", []string{"system", "df", "--format", "{{json .}}"}, 6*time.Second)
+	out, err := runWithTimeout(ctx, "docker", []string{"system", "df", "--format", "{{json .}}"}, 6*time.Second)
 	if err != nil {
 		return
 	}
@@ -123,11 +127,11 @@ func probeDockerSmart(emit func(Candidate)) {
 
 // ---------- Homebrew ----------
 
-func probeBrewSmart(emit func(Candidate)) {
+func probeBrewSmart(ctx context.Context, emit func(Candidate)) {
 	if !has("brew") {
 		return
 	}
-	out, err := runWithTimeout("brew", []string{"cleanup", "--dry-run", "-s", "--prune=all"}, 10*time.Second)
+	out, err := runWithTimeout(ctx, "brew", []string{"cleanup", "--dry-run", "-s", "--prune=all"}, 10*time.Second)
 	if err != nil {
 		return
 	}
@@ -159,14 +163,14 @@ func probeBrewSmart(emit func(Candidate)) {
 
 // ---------- Go ----------
 
-func probeGoSmart(emit func(Candidate)) {
+func probeGoSmart(ctx context.Context, emit func(Candidate)) {
 	if !has("go") {
 		return
 	}
 	// Size the build cache and modcache directly (Go has no "dry run" for clean).
 	buildCache := config.Expand("~/Library/Caches/go-build")
 	if fi, err := os.Stat(buildCache); err == nil && fi.IsDir() {
-		size := CachedDirSize(buildCache, 4)
+		size := CachedDirSize(ctx, buildCache, 4)
 		if size > 0 {
 			emit(Candidate{
 				Path:        buildCache,
@@ -183,7 +187,7 @@ func probeGoSmart(emit func(Candidate)) {
 	}
 	modCache := config.Expand("~/go/pkg/mod/cache")
 	if fi, err := os.Stat(modCache); err == nil && fi.IsDir() {
-		size := CachedDirSize(modCache, 4)
+		size := CachedDirSize(ctx, modCache, 4)
 		if size > 0 {
 			emit(Candidate{
 				Path:        modCache,
@@ -202,7 +206,7 @@ func probeGoSmart(emit func(Candidate)) {
 
 // ---------- npm ----------
 
-func probeNpmSmart(emit func(Candidate)) {
+func probeNpmSmart(ctx context.Context, emit func(Candidate)) {
 	if !has("npm") {
 		return
 	}
@@ -211,7 +215,7 @@ func probeNpmSmart(emit func(Candidate)) {
 	if err != nil || !fi.IsDir() {
 		return
 	}
-	size := CachedDirSize(cacheDir, 4)
+	size := CachedDirSize(ctx, cacheDir, 4)
 	if size <= 0 {
 		return
 	}
@@ -230,7 +234,7 @@ func probeNpmSmart(emit func(Candidate)) {
 
 // ---------- yarn ----------
 
-func probeYarnSmart(emit func(Candidate)) {
+func probeYarnSmart(ctx context.Context, emit func(Candidate)) {
 	if !has("yarn") {
 		return
 	}
@@ -239,7 +243,7 @@ func probeYarnSmart(emit func(Candidate)) {
 		// Yarn berry uses a different location; just exit if classic dir missing.
 		return
 	}
-	size := CachedDirSize(cacheDir, 4)
+	size := CachedDirSize(ctx, cacheDir, 4)
 	if size <= 0 {
 		return
 	}
@@ -258,12 +262,12 @@ func probeYarnSmart(emit func(Candidate)) {
 
 // ---------- pnpm ----------
 
-func probePnpmSmart(emit func(Candidate)) {
+func probePnpmSmart(ctx context.Context, emit func(Candidate)) {
 	if !has("pnpm") {
 		return
 	}
 	// `pnpm store path` gives the store location.
-	out, err := runWithTimeout("pnpm", []string{"store", "path"}, 5*time.Second)
+	out, err := runWithTimeout(ctx, "pnpm", []string{"store", "path"}, 5*time.Second)
 	if err != nil {
 		return
 	}
@@ -274,7 +278,7 @@ func probePnpmSmart(emit func(Candidate)) {
 	if fi, err := os.Stat(storePath); err != nil || !fi.IsDir() {
 		return
 	}
-	size := CachedDirSize(storePath, 4)
+	size := CachedDirSize(ctx, storePath, 4)
 	if size <= 0 {
 		return
 	}
@@ -296,7 +300,7 @@ func probePnpmSmart(emit func(Candidate)) {
 
 // ---------- Cargo (Rust) ----------
 
-func probeCargoSmart(emit func(Candidate)) {
+func probeCargoSmart(ctx context.Context, emit func(Candidate)) {
 	// `cargo cache` (the third-party tool) is the smart option; without it,
 	// the safe move is to keep the dumb-path probe.
 	if !has("cargo-cache") {
@@ -308,7 +312,7 @@ func probeCargoSmart(emit func(Candidate)) {
 	var size int64
 	for _, d := range []string{registry, gitCache} {
 		if fi, err := os.Stat(d); err == nil && fi.IsDir() {
-			size += CachedDirSize(d, 4)
+			size += CachedDirSize(ctx, d, 4)
 		}
 	}
 	if size <= 0 {
@@ -329,7 +333,7 @@ func probeCargoSmart(emit func(Candidate)) {
 
 // ---------- uv (Python) ----------
 
-func probeUvSmart(emit func(Candidate)) {
+func probeUvSmart(ctx context.Context, emit func(Candidate)) {
 	if !has("uv") {
 		return
 	}
@@ -337,7 +341,7 @@ func probeUvSmart(emit func(Candidate)) {
 	if fi, err := os.Stat(cacheDir); err != nil || !fi.IsDir() {
 		return
 	}
-	size := CachedDirSize(cacheDir, 4)
+	size := CachedDirSize(ctx, cacheDir, 4)
 	if size <= 0 {
 		return
 	}
@@ -356,7 +360,7 @@ func probeUvSmart(emit func(Candidate)) {
 
 // ---------- pip (Python) ----------
 
-func probePipSmart(emit func(Candidate)) {
+func probePipSmart(ctx context.Context, emit func(Candidate)) {
 	if !has("pip") && !has("pip3") {
 		return
 	}
@@ -365,7 +369,7 @@ func probePipSmart(emit func(Candidate)) {
 		pip = "pip3"
 	}
 	// Ask pip where its cache lives.
-	out, err := runWithTimeout(pip, []string{"cache", "dir"}, 5*time.Second)
+	out, err := runWithTimeout(ctx, pip, []string{"cache", "dir"}, 5*time.Second)
 	if err != nil {
 		return
 	}
@@ -376,7 +380,7 @@ func probePipSmart(emit func(Candidate)) {
 	if fi, err := os.Stat(cacheDir); err != nil || !fi.IsDir() {
 		return
 	}
-	size := CachedDirSize(cacheDir, 4)
+	size := CachedDirSize(ctx, cacheDir, 4)
 	if size <= 0 {
 		return
 	}
@@ -395,13 +399,13 @@ func probePipSmart(emit func(Candidate)) {
 
 // ---------- Xcode simulators ----------
 
-func probeXcodeSimulatorsSmart(emit func(Candidate)) {
+func probeXcodeSimulatorsSmart(ctx context.Context, emit func(Candidate)) {
 	if !has("xcrun") {
 		return
 	}
 	// Estimate reclaim by sizing unavailable runtime directories. xcrun simctl
 	// list devices --json gives availability per device.
-	out, err := runWithTimeout("xcrun", []string{"simctl", "list", "devices", "unavailable", "--json"}, 8*time.Second)
+	out, err := runWithTimeout(ctx, "xcrun", []string{"simctl", "list", "devices", "unavailable", "--json"}, 8*time.Second)
 	if err != nil {
 		return
 	}
@@ -419,7 +423,7 @@ func probeXcodeSimulatorsSmart(emit func(Candidate)) {
 		for _, d := range list {
 			p := filepath.Join(devicesDir, d.UDID)
 			if fi, err := os.Stat(p); err == nil && fi.IsDir() {
-				size += CachedDirSize(p, 4)
+				size += CachedDirSize(ctx, p, 4)
 			}
 		}
 	}

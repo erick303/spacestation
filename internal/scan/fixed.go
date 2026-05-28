@@ -1,6 +1,7 @@
 package scan
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -62,7 +63,7 @@ func defaultFixedProbes() []fixedProbe {
 	}
 }
 
-func probeFixedPaths(cfg config.Config, workers int, emit func(Candidate)) {
+func probeFixedPaths(ctx context.Context, cfg config.Config, workers int, emit func(Candidate)) {
 	probes := defaultFixedProbes()
 
 	// Add brew --cache if brew is on PATH and not already covered.
@@ -82,6 +83,9 @@ func probeFixedPaths(cfg config.Config, workers int, emit func(Candidate)) {
 
 	var wg sync.WaitGroup
 	for _, p := range probes {
+		if ctx.Err() != nil {
+			break
+		}
 		if p.disabled {
 			continue
 		}
@@ -93,7 +97,7 @@ func probeFixedPaths(cfg config.Config, workers int, emit func(Candidate)) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			runFixedProbe(p, workers, skip, emit)
+			runFixedProbe(ctx, p, workers, skip, emit)
 		}()
 	}
 	wg.Wait()
@@ -132,7 +136,7 @@ func smartClaimedPaths() map[string]bool {
 	return claimed
 }
 
-func runFixedProbe(p fixedProbe, workers int, skip map[string]bool, emit func(Candidate)) {
+func runFixedProbe(ctx context.Context, p fixedProbe, workers int, skip map[string]bool, emit func(Candidate)) {
 	full := config.Expand(p.path)
 	info, err := os.Stat(full)
 	if err != nil {
@@ -143,7 +147,7 @@ func runFixedProbe(p fixedProbe, workers int, skip map[string]bool, emit func(Ca
 	}
 
 	if !p.expand {
-		size := CachedDirSize(full, workers)
+		size := CachedDirSize(ctx, full, workers)
 		if size == 0 {
 			return
 		}
@@ -165,6 +169,9 @@ func runFixedProbe(p fixedProbe, workers int, skip map[string]bool, emit func(Ca
 	}
 	var childWG sync.WaitGroup
 	for _, e := range entries {
+		if ctx.Err() != nil {
+			break
+		}
 		if !e.IsDir() {
 			continue
 		}
@@ -175,7 +182,7 @@ func runFixedProbe(p fixedProbe, workers int, skip map[string]bool, emit func(Ca
 		childWG.Add(1)
 		go func(path string) {
 			defer childWG.Done()
-			size := CachedDirSize(path, workers)
+			size := CachedDirSize(ctx, path, workers)
 			if size == 0 {
 				return
 			}
@@ -192,7 +199,7 @@ func runFixedProbe(p fixedProbe, workers int, skip map[string]bool, emit func(Ca
 	childWG.Wait()
 }
 
-func probeDownloads(cfg config.Config, workers int, emit func(Candidate)) {
+func probeDownloads(ctx context.Context, cfg config.Config, workers int, emit func(Candidate)) {
 	root := config.Expand("~/Downloads")
 	info, err := os.Stat(root)
 	if err != nil || !info.IsDir() {
@@ -205,6 +212,9 @@ func probeDownloads(cfg config.Config, workers int, emit func(Candidate)) {
 	minSize := cfg.Selection.DownloadsMinSizeMB * 1024 * 1024
 	var wg sync.WaitGroup
 	for _, e := range entries {
+		if ctx.Err() != nil {
+			break
+		}
 		if strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
@@ -221,7 +231,7 @@ func probeDownloads(cfg config.Config, workers int, emit func(Candidate)) {
 			}
 			var size int64
 			if info.IsDir() {
-				size = CachedDirSize(full, workers)
+				size = CachedDirSize(ctx, full, workers)
 			} else if info.Mode().IsRegular() {
 				size = info.Size()
 			}
@@ -241,13 +251,13 @@ func probeDownloads(cfg config.Config, workers int, emit func(Candidate)) {
 	wg.Wait()
 }
 
-func probeTrash(workers int, emit func(Candidate)) {
+func probeTrash(ctx context.Context, workers int, emit func(Candidate)) {
 	root := config.Expand("~/.Trash")
 	info, err := os.Stat(root)
 	if err != nil || !info.IsDir() {
 		return
 	}
-	size := CachedDirSize(root, workers)
+	size := CachedDirSize(ctx, root, workers)
 	if size == 0 {
 		return
 	}
