@@ -17,6 +17,13 @@ type fixedProbe struct {
 	safety Safety
 	detail string
 	expand bool // whether to glob/list children individually
+
+	// replacedBy: if any of these tools is on PATH, a smart probe in
+	// smart.go will emit a better (typically ActionCommand) candidate for
+	// this location, so this fixed probe is suppressed. The matching path
+	// is also added to the expand-loop's claimed set so an expand parent
+	// (e.g. ~/Library/Caches) doesn't re-emit it as a child.
+	replacedBy []string
 }
 
 func defaultFixedProbes() []fixedProbe {
@@ -26,7 +33,8 @@ func defaultFixedProbes() []fixedProbe {
 		{path: "~/Library/Developer/Xcode/Archives", cat: CatXcode, safety: SafetyUserContent,
 			detail: "Xcode build archives. Keep if you may need to symbolicate or re-submit."},
 		{path: "~/Library/Developer/CoreSimulator/Devices", cat: CatXcode, safety: SafetyRegenerable,
-			detail: "iOS Simulator device state. Recreated by Xcode/simulator on next launch.", expand: true},
+			detail: "iOS Simulator device state. Recreated by Xcode/simulator on next launch.", expand: true,
+			replacedBy: []string{"xcrun"}},
 		{path: "~/Library/Developer/Xcode/iOS DeviceSupport", cat: CatXcode, safety: SafetyRegenerable,
 			detail: "Per-iOS-version debug symbols. Re-downloaded when you connect a device.", expand: true},
 		{path: "~/Library/Developer/Xcode/watchOS DeviceSupport", cat: CatXcode, safety: SafetyRegenerable,
@@ -35,9 +43,11 @@ func defaultFixedProbes() []fixedProbe {
 			detail: "Per-tvOS-version debug symbols. Re-downloaded when you connect a device.", expand: true},
 
 		{path: "~/Library/Caches/go-build", cat: CatGoCache, safety: SafetyRegenerable,
-			detail: "Go build cache. Recreated by `go build` / `go test`."},
+			detail: "Go build cache. Recreated by `go build` / `go test`.",
+			replacedBy: []string{"go"}},
 		{path: "~/go/pkg/mod/cache", cat: CatGoCache, safety: SafetyRegenerable,
-			detail: "Go module download cache. Recreated by `go mod download`."},
+			detail: "Go module download cache. Recreated by `go mod download`.",
+			replacedBy: []string{"go"}},
 
 		{path: "~/.cargo/registry", cat: CatRust, safety: SafetyRegenerable,
 			detail: "Cargo registry cache. Recreated automatically by cargo."},
@@ -45,19 +55,25 @@ func defaultFixedProbes() []fixedProbe {
 			detail: "Cargo git checkouts. Recreated by cargo on next build."},
 
 		{path: "~/.npm/_cacache", cat: CatNodeModules, safety: SafetyRegenerable,
-			detail: "npm content-addressable cache. Recreated by `npm install`."},
+			detail: "npm content-addressable cache. Recreated by `npm install`.",
+			replacedBy: []string{"npm"}},
 		{path: "~/.yarn/cache", cat: CatNodeModules, safety: SafetyRegenerable,
-			detail: "Yarn cache. Recreated by `yarn install`."},
+			detail: "Yarn cache. Recreated by `yarn install`.",
+			replacedBy: []string{"yarn"}},
 		{path: "~/Library/pnpm/store", cat: CatNodeModules, safety: SafetyRegenerable,
-			detail: "pnpm store. Recreated by `pnpm install`."},
+			detail: "pnpm store. Recreated by `pnpm install`.",
+			replacedBy: []string{"pnpm"}},
 
 		{path: "~/Library/Caches/Homebrew", cat: CatHomebrew, safety: SafetyRegenerable,
-			detail: "Homebrew downloaded bottles. Recreated on next `brew install`."},
+			detail: "Homebrew downloaded bottles. Recreated on next `brew install`.",
+			replacedBy: []string{"brew"}},
 		{path: "~/Library/Caches/Homebrew/downloads", cat: CatHomebrew, safety: SafetyRegenerable,
-			detail: "Homebrew download cache. Safe to delete; brew will re-download as needed."},
+			detail: "Homebrew download cache. Safe to delete; brew will re-download as needed.",
+			replacedBy: []string{"brew"}},
 
 		{path: "~/Library/Containers/com.docker.docker/Data/vms", cat: CatDocker, safety: SafetyUserContent,
-			detail: "Docker VM disk image(s). Deleting removes ALL Docker images/volumes/containers."},
+			detail: "Docker VM disk image(s). Deleting removes ALL Docker images/volumes/containers.",
+			replacedBy: []string{"docker"}},
 		{path: "~/Library/Group Containers/group.com.docker", cat: CatDocker, safety: SafetyUserContent,
 			detail: "Docker group container data."},
 
@@ -84,9 +100,18 @@ func probeFixedPaths(ctx context.Context, cfg config.Config, workers int, emit f
 		}
 	}
 
-	// Skip paths that smart probes will cover — saves redundant DirSize work
-	// on huge trees. Smart probes emit better command-based candidates for these.
-	skip := smartClaimedPaths()
+	// Derive the set of paths that smart probes will claim, from the
+	// probe metadata itself. A probe with replacedBy is suppressed when
+	// any named tool is on PATH; its path also goes into the claimed set
+	// so that an expand parent (e.g. ~/Library/Caches) doesn't re-emit it
+	// as a child. The same path can't drift between two different lists
+	// because there's only one list — the probes themselves.
+	claimed := map[string]bool{}
+	for _, p := range probes {
+		if hasAny(p.replacedBy) {
+			claimed[config.Expand(p.path)] = true
+		}
+	}
 
 	var wg sync.WaitGroup
 	for _, p := range probes {
@@ -99,51 +124,27 @@ func probeFixedPaths(ctx context.Context, cfg config.Config, workers int, emit f
 		if p.cat == CatSystemCache && !cfg.Scan.IncludeSystemCache {
 			continue
 		}
-		full := config.Expand(p.path)
-		if skip[full] {
+		if claimed[config.Expand(p.path)] {
 			continue
 		}
 		p := p
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			runFixedProbe(ctx, p, workers, skip, emit)
+			runFixedProbe(ctx, p, workers, claimed, emit)
 		}()
 	}
 	wg.Wait()
 }
 
-// smartClaimedPaths returns the set of expanded paths that a smart probe
-// will cover (if its underlying tool is installed). The fixed-path scanner
-// uses this to avoid duplicate sizing work.
-func smartClaimedPaths() map[string]bool {
-	claimed := map[string]bool{}
-	if has("docker") {
-		claimed[config.Expand("~/Library/Containers/com.docker.docker/Data/vms")] = true
+// hasAny reports whether any of the named tools is on PATH.
+func hasAny(tools []string) bool {
+	for _, t := range tools {
+		if has(t) {
+			return true
+		}
 	}
-	if has("brew") {
-		claimed[config.Expand("~/Library/Caches/Homebrew")] = true
-		claimed[config.Expand("~/Library/Caches/Homebrew/downloads")] = true
-	}
-	if has("go") {
-		claimed[config.Expand("~/Library/Caches/go-build")] = true
-		claimed[config.Expand("~/go/pkg/mod/cache")] = true
-	}
-	if has("npm") {
-		claimed[config.Expand("~/.npm/_cacache")] = true
-	}
-	if has("yarn") {
-		claimed[config.Expand("~/.yarn/cache")] = true
-	}
-	if has("pnpm") {
-		claimed[config.Expand("~/Library/pnpm/store")] = true
-	}
-	if has("xcrun") {
-		// CoreSimulator/Devices is "expanded" in the fixed probes (per-child); the
-		// smart probe replaces it with a single command candidate. Skip the expand.
-		claimed[config.Expand("~/Library/Developer/CoreSimulator/Devices")] = true
-	}
-	return claimed
+	return false
 }
 
 func runFixedProbe(ctx context.Context, p fixedProbe, workers int, skip map[string]bool, emit func(Candidate)) {

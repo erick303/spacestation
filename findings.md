@@ -23,12 +23,6 @@ _(none open — see Resolved section at bottom)_
 
 ## MEDIUM — design / coherence
 
-### M6. `smartClaimedPaths()` exists only to dodge dedupe
-**File:** `internal/scan/fixed.go:81, 105-133`
-**Verification:** confirmed. The dedupe pass in `scan.Run:115-143` already keys by path and prefers `ActionCommand`. So `smartClaimedPaths` is a pre-filter that has to be hand-kept in sync with every smart probe. If you add a smart probe and forget to update `smartClaimedPaths`, you get a duplicate that dedupe silently cleans up later — but the redundant `CachedDirSize` work already ran.
-
-**Fix:** drop `smartClaimedPaths` and trust the dedupe pass. Or, conversely, drop the dedupe and structure probes as a single list of `{path, sizer, optionalSmartCmd}`.
-
 ### M8. TUI knows literal `"hard"` string
 **File:** `internal/tui/model.go:493, 762, 796`
 **Verification:** confirmed. The mode resolution happens three times via string compare. `cleanup.Mode` is already a typed int.
@@ -205,6 +199,13 @@ Resolved. `main.go` now exposes a `--version` flag that reads `runtime/debug.Rea
 
 ### H8. `tea.WithMouseCellMotion()` enabled with zero mouse handlers
 Resolved. Removed `tea.WithMouseCellMotion()` from `tea.NewProgram` at `internal/tui/model.go:23`. No `tea.MouseMsg` cases exist in Update, so the option was pure cost — terminal emulators (iTerm, Alacritty, etc.) intercept the mouse stream and require Option/Shift to copy text. Native click-drag-to-copy now works again. The option can come back the day a mouse handler is added.
+
+### M6. `smartClaimedPaths()` exists only to dodge dedupe
+Resolved with a different fix than the finding proposed. The original suggestion was "drop `smartClaimedPaths` and trust the dedupe pass" — that's wrong. The dedupe in `scan.Run` is *path-keyed*, but three smart probes (brew, docker, xcrun) emit synthetic-URI paths (`brew://cleanup`, `docker://system-prune`, `xcrun://simctl-delete-unavailable`) that don't share a path with the corresponding fixed probe. Drop the pre-filter and both a "delete this dir" and "run this command" candidate land in the list. Verified empirically before fixing.
+
+What actually changed: rather than a separate `smartClaimedPaths()` function listing tool→path mappings, the relationship now lives on the probe itself as a `replacedBy []string` field naming the tools whose presence suppresses this probe. The `probeFixedPaths` orchestrator builds the claimed-path set in one short loop over the probe list, and passes it to `runFixedProbe` to also suppress claimed paths when they appear as children of an expand probe (e.g. `~/Library/Caches/Homebrew` under the `~/Library/Caches` expand). Adding a smart probe that replaces a fixed one is now a one-field annotation on the relevant fixed-probe entries instead of a remote-table sync.
+
+Same behavior as before, fewer footguns: the claim is colocated with the probe, the set is derived from data, and `smartClaimedPaths` is gone. JSON output count matches the pre-change baseline (141 candidates).
 
 ### M5. `Category` knowledge leaks into the TUI in three places
 Resolved (conservative variant). Adding a new category now requires touching three places: a new `iota` const, a new row in `scan.categoryMeta`, and a new row in `tui.categoryColors` — plus the emitter. Previously it was five (const + String case + SortOrder case + color map entry + emitter).
