@@ -93,6 +93,12 @@ func probeFixedPaths(ctx context.Context, cfg config.Config, workers int, emit f
 		if ctx.Err() != nil {
 			break
 		}
+		// Honor the include_system_caches knob: when false, skip every
+		// CatSystemCache probe (~/Library/Caches, ~/.cache, ~/Library/Logs).
+		// All other categories are always probed.
+		if p.cat == CatSystemCache && !cfg.Scan.IncludeSystemCache {
+			continue
+		}
 		full := config.Expand(p.path)
 		if skip[full] {
 			continue
