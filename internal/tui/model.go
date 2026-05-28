@@ -1075,15 +1075,3 @@ func (m *model) viewDone() string {
 }
 
 // helpers (padRight, padLeft live in format.go alongside truncatePath)
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}

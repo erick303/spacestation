@@ -12,7 +12,6 @@ var (
 	colorGood   = lipgloss.AdaptiveColor{Light: "#1F9D55", Dark: "#9ECE6A"}
 	colorWarn   = lipgloss.AdaptiveColor{Light: "#B97C00", Dark: "#E0AF68"}
 	colorDanger = lipgloss.AdaptiveColor{Light: "#C13030", Dark: "#F7768E"}
-	colorBg     = lipgloss.AdaptiveColor{Light: "#F5F5F7", Dark: "#1A1B26"}
 )
 
 var (
@@ -32,7 +31,6 @@ var (
 	groupHeaderStyle         = lipgloss.NewStyle().Bold(true)
 	groupHeaderSelectedStyle = lipgloss.NewStyle().Bold(true) // arrow shows cursor, not bg
 
-	itemStyle         = lipgloss.NewStyle()
 	itemSelectedStyle = lipgloss.NewStyle().Bold(true)
 
 	cursorArrowStyle = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
@@ -43,7 +41,6 @@ var (
 
 	sizeStyle  = lipgloss.NewStyle().Foreground(colorGood).Bold(true)
 	ageStyle   = lipgloss.NewStyle().Foreground(colorMuted)
-	pathStyle  = lipgloss.NewStyle()
 	mutedStyle = lipgloss.NewStyle().Foreground(colorMuted)
 	dangerStyle = lipgloss.NewStyle().Foreground(colorDanger).Bold(true)
 	warnStyle  = lipgloss.NewStyle().Foreground(colorWarn)

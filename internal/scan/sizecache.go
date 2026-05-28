@@ -8,8 +8,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
-	"github.com/erick303/spacestation/internal/config"
 )
 
 // sizeCache is a process-wide, persistent cache of directory sizes keyed by
@@ -157,11 +155,3 @@ func InvalidateSizeCache(root string) {
 	c.mu.Unlock()
 }
 
-// for tests
-func resetGlobalCache(path string) {
-	globalCacheMu.Lock()
-	defer globalCacheMu.Unlock()
-	globalCache = nil
-	globalCachePath = path
-	_ = config.Expand // keep import used; package needs config for path resolution elsewhere
-}

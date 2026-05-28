@@ -77,16 +77,6 @@ _(none open — see Resolved section at bottom)_
 
 ## MEDIUM — code quality / dead code
 
-### M10. Dead code (delete-only)
-**Verification:** all confirmed by grep.
-- `internal/scan/sizecache.go:131-137` — `resetGlobalCache` is unused; the `_ = config.Expand` line is a smell that exists only to keep the unused-after-deletion `config` import alive. Delete both, drop the import.
-- `internal/scan/fixed.go:19, 85-87` — `disabled` field on `fixedProbe` is never set. Delete field and the check.
-- `internal/tui/styles.go:15` — `colorBg` is unused.
-- `internal/tui/styles.go:35` — `itemStyle` is unused.
-- `internal/tui/styles.go:46` — `pathStyle` is unused.
-- `internal/tui/model.go:829-840` — hand-rolled `min`/`max`. Module is `go 1.25.0` (`go.mod:3`); use Go 1.21+ builtins.
-- `internal/scan/scan_test.go:171-190` — hand-rolled `itoa`. Replace with `strconv.Itoa(i)`.
-
 ### M11. `probeBrewSmart` reuses `parseDockerSize` by concatenating regex groups
 **File:** `internal/scan/smart.go:135-142` vs `:66-90`
 **Verification:** confirmed. Brew's regex splits `(num)(unit)`; the code then concatenates `m[1]+m[2]` and feeds back to `parseDockerSize` which immediately re-splits with the same pattern. Plus `sizeRe` (line 136) is recompiled inside the loop body each call.
@@ -253,3 +243,14 @@ Resolved. `main.go` now exposes a `--version` flag that reads `runtime/debug.Rea
 
 ### H8. `tea.WithMouseCellMotion()` enabled with zero mouse handlers
 Resolved. Removed `tea.WithMouseCellMotion()` from `tea.NewProgram` at `internal/tui/model.go:23`. No `tea.MouseMsg` cases exist in Update, so the option was pure cost — terminal emulators (iTerm, Alacritty, etc.) intercept the mouse stream and require Option/Shift to copy text. Native click-drag-to-copy now works again. The option can come back the day a mouse handler is added.
+
+### M10. Dead-code purge
+Resolved. Deleted, all confirmed unused by grep:
+
+- `internal/scan/sizecache.go` — `resetGlobalCache` (and its accompanying `_ = config.Expand` import-keep smell). Dropped the `config` import that only existed to feed it.
+- `internal/scan/fixed.go` — `disabled` field on `fixedProbe` (set nowhere) and the `if p.disabled { continue }` check.
+- `internal/tui/styles.go` — `colorBg`, `itemStyle`, `pathStyle` (all defined, never referenced).
+- `internal/tui/model.go` — hand-rolled `func min(a, b int) int` and `func max(a, b int) int`. Module is `go 1.25.0`, so the Go 1.21+ builtins now resolve at the call sites for free.
+- `internal/scan/scan_test.go` — hand-rolled `func itoa(i int) string`. Replaced its 4 call sites with `strconv.Itoa(i)` and added the `strconv` import.
+
+Net ~50 LOC removed; build, vet, and tests stay green.

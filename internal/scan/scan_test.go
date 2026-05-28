@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -126,7 +127,7 @@ func TestWalkSkipsDotGit(t *testing.T) {
 func TestDirSize(t *testing.T) {
 	dir := t.TempDir()
 	for i, sz := range []int{10, 25, 100} {
-		path := filepath.Join(dir, "f"+itoa(i))
+		path := filepath.Join(dir, "f"+strconv.Itoa(i))
 		if err := os.WriteFile(path, make([]byte, sz), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -148,7 +149,7 @@ func TestDirSizeDeduplicatesHardlinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 1; i <= 3; i++ {
-		link := filepath.Join(dir, "link"+itoa(i))
+		link := filepath.Join(dir, "link"+strconv.Itoa(i))
 		if err := os.Link(src, link); err != nil {
 			t.Fatal(err)
 		}
@@ -206,12 +207,12 @@ func TestDirSizeRespectsContext(t *testing.T) {
 	// Build a small tree. Cancellation is what matters, not how big.
 	dir := t.TempDir()
 	for i := 0; i < 20; i++ {
-		sub := filepath.Join(dir, "d"+itoa(i))
+		sub := filepath.Join(dir, "d"+strconv.Itoa(i))
 		if err := os.MkdirAll(sub, 0o755); err != nil {
 			t.Fatal(err)
 		}
 		for j := 0; j < 10; j++ {
-			if err := os.WriteFile(filepath.Join(sub, "f"+itoa(j)), []byte("x"), 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(sub, "f"+strconv.Itoa(j)), []byte("x"), 0o644); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -260,23 +261,3 @@ func candsSummary(cs []Candidate) []string {
 	return out
 }
 
-func itoa(i int) string {
-	if i == 0 {
-		return "0"
-	}
-	var b strings.Builder
-	neg := i < 0
-	if neg {
-		i = -i
-	}
-	digits := []byte{}
-	for i > 0 {
-		digits = append([]byte{byte('0' + i%10)}, digits...)
-		i /= 10
-	}
-	if neg {
-		b.WriteByte('-')
-	}
-	b.Write(digits)
-	return b.String()
-}

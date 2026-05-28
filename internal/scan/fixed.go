@@ -12,12 +12,11 @@ import (
 )
 
 type fixedProbe struct {
-	path     string // ~-relative; expanded by Expand()
-	cat      Category
-	safety   Safety
-	detail   string
-	expand   bool // whether to glob/list children individually
-	disabled bool
+	path   string // ~-relative; expanded by Expand()
+	cat    Category
+	safety Safety
+	detail string
+	expand bool // whether to glob/list children individually
 }
 
 func defaultFixedProbes() []fixedProbe {
@@ -85,9 +84,6 @@ func probeFixedPaths(ctx context.Context, cfg config.Config, workers int, emit f
 	for _, p := range probes {
 		if ctx.Err() != nil {
 			break
-		}
-		if p.disabled {
-			continue
 		}
 		full := config.Expand(p.path)
 		if skip[full] {
