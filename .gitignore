@@ -1,0 +1,17 @@
+# Build artifacts
+/spacestation
+/dist/
+*.test
+*.out
+
+# Local config / runtime data
+sizes.json
+
+# macOS
+.DS_Store
+
+# Editors
+.idea/
+.vscode/
+*.swp
+
