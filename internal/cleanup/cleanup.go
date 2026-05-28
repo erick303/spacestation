@@ -98,32 +98,51 @@ func Execute(ctx context.Context, cands []scan.Candidate, mode Mode) []Result {
 	return results
 }
 
-// TrashProgress reports the removal of a single Trash item. It is emitted once
-// per item as it finishes (success or failure), so the UI can show a running
-// count and a log of what just went. Done is the number of items finished so
-// far (1..Total); Total is fixed for the run.
+// TrashProgress reports progress while permanently removing Trash items.
+// Two kinds of event share this struct, distinguished only by which counters
+// moved since the last one:
+//
+//   - file ticks: emitted as individual files are unlinked while a big item is
+//     being cleared, so the UI shows motion (and a streaming log) instead of
+//     freezing on one entry for minutes. Files climbs; Done does not.
+//   - item completions: emitted once per top-level item as it finishes. Done
+//     climbs (1..Total).
+//
+// Every event carries an atomic snapshot of all counters, so the UI can just
+// take the max of each — dropped/out-of-order events never corrupt the totals.
 type TrashProgress struct {
-	Path  string // the item just removed (or attempted)
-	Done  int    // items finished so far, including this one
-	Total int    // total items in this removal
-	Err   error  // non-nil if this item failed to remove
+	Path  string // the file or item just removed (newest first in the UI log)
+	Done  int    // top-level items finished so far
+	Total int    // total top-level items in this removal
+	Files int    // individual files/dirs unlinked so far across the whole op
+	Err   error  // non-nil if a top-level item failed to remove
 }
 
-// RemoveFromTrash permanently removes each candidate's Path (os.RemoveAll), in
-// parallel. Items already in the Trash can't be re-trashed, so removal is always
-// permanent regardless of delete mode. Returns one Result per input candidate,
-// in input order, so the same done-screen / size-cache code path applies.
+// progressEvery throttles file-tick emissions: a non-empty Trash can hold
+// hundreds of thousands of files, and we don't need a UI event for each. Every
+// Nth unlink is plenty for a smooth counter + log. Item completions are never
+// throttled, so the count and bar always reach their totals.
+const progressEvery = 64
+
+// RemoveFromTrash permanently removes each candidate's Path, in parallel, by
+// unlinking file-by-file (see removeTreeCounting) so progress streams even
+// inside one huge item. Items already in the Trash can't be re-trashed, so
+// removal is always permanent regardless of delete mode. Returns one Result per
+// input candidate, in input order, so the same done-screen / size-cache code
+// path applies.
 //
-// progress, if non-nil, is called once per item as it finishes. It may be
-// called concurrently from worker goroutines, so it must be safe for that.
+// progress, if non-nil, is called for file ticks and per item as it finishes.
+// It may be called concurrently from worker goroutines, so it must be safe for
+// that.
 func RemoveFromTrash(ctx context.Context, cands []scan.Candidate, progress func(TrashProgress)) []Result {
 	results := make([]Result, len(cands))
 	for i, c := range cands {
 		results[i] = Result{Candidate: c}
 	}
 	var (
-		wg   sync.WaitGroup
-		done int64
+		wg    sync.WaitGroup
+		done  int64
+		files int64
 	)
 	total := len(cands)
 	sem := make(chan struct{}, 8)
@@ -142,13 +161,13 @@ func RemoveFromTrash(ctx context.Context, cands []scan.Candidate, progress func(
 				results[i].Err = err
 				return
 			}
-			err := os.RemoveAll(p)
+			err := removeTreeCounting(ctx, p, fileTicker(&files, &done, total, progress))
 			if err != nil {
 				results[i].Err = err
 			}
 			if progress != nil {
 				n := atomic.AddInt64(&done, 1)
-				progress(TrashProgress{Path: p, Done: int(n), Total: total, Err: err})
+				progress(TrashProgress{Path: p, Done: int(n), Total: total, Files: int(atomic.LoadInt64(&files)), Err: err})
 			}
 		}()
 	}
@@ -175,10 +194,11 @@ func emptyTrash(ctx context.Context, dir string, progress func(TrashProgress)) e
 		return fmt.Errorf("read %s: %w", dir, err)
 	}
 	var (
-		wg   sync.WaitGroup
-		mu   sync.Mutex
-		errs []string
-		done int64
+		wg    sync.WaitGroup
+		mu    sync.Mutex
+		errs  []string
+		done  int64
+		files int64
 	)
 	total := len(entries)
 	sem := make(chan struct{}, 8)
@@ -195,7 +215,7 @@ func emptyTrash(ctx context.Context, dir string, progress func(TrashProgress)) e
 			if ctx.Err() != nil {
 				return
 			}
-			rmErr := os.RemoveAll(p)
+			rmErr := removeTreeCounting(ctx, p, fileTicker(&files, &done, total, progress))
 			if rmErr != nil {
 				mu.Lock()
 				errs = append(errs, fmt.Sprintf("%s: %v", filepath.Base(p), rmErr))
@@ -203,7 +223,7 @@ func emptyTrash(ctx context.Context, dir string, progress func(TrashProgress)) e
 			}
 			if progress != nil {
 				n := atomic.AddInt64(&done, 1)
-				progress(TrashProgress{Path: p, Done: int(n), Total: total, Err: rmErr})
+				progress(TrashProgress{Path: p, Done: int(n), Total: total, Files: int(atomic.LoadInt64(&files)), Err: rmErr})
 			}
 		}(full)
 	}
@@ -215,6 +235,71 @@ func emptyTrash(ctx context.Context, dir string, progress func(TrashProgress)) e
 		return fmt.Errorf("%d items in Trash could not be removed: %s, …", len(errs), strings.Join(errs[:5], "; "))
 	}
 	return fmt.Errorf("%d items in Trash could not be removed: %s", len(errs), strings.Join(errs, "; "))
+}
+
+// fileTicker builds the per-file callback passed to removeTreeCounting. It
+// bumps the shared file counter on every unlink but only emits a (throttled)
+// progress event every progressEvery files, snapshotting all counters so the
+// UI sees a consistent picture. Returns nil when there's nothing to report to,
+// so removeTreeCounting can skip the call entirely.
+func fileTicker(files, done *int64, total int, progress func(TrashProgress)) func(string) {
+	if progress == nil {
+		return nil
+	}
+	return func(p string) {
+		n := atomic.AddInt64(files, 1)
+		if n%progressEvery == 0 {
+			progress(TrashProgress{Path: p, Done: int(atomic.LoadInt64(done)), Total: total, Files: int(n)})
+		}
+	}
+}
+
+// removeTreeCounting removes path and everything under it, calling onFile after
+// each individual file/dir is unlinked. It's the per-file analogue of
+// os.RemoveAll — which is itself a recursive unlink, so the extra callback adds
+// negligible cost — but lets the caller stream progress through a large tree
+// instead of blocking opaquely on one RemoveAll. Best-effort like RemoveAll: it
+// returns the first error encountered but keeps going where it can. onFile may
+// be nil. ctx cancellation aborts between entries.
+func removeTreeCounting(ctx context.Context, path string, onFile func(string)) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	var firstErr error
+	// Recurse into real directories only — never follow symlinks (Lstat, and
+	// the IsDir check on the link's own mode, keep us from deleting outside
+	// the tree).
+	if info.IsDir() {
+		entries, rerr := os.ReadDir(path)
+		if rerr != nil {
+			firstErr = rerr
+		}
+		for _, e := range entries {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if cerr := removeTreeCounting(ctx, filepath.Join(path, e.Name()), onFile); cerr != nil && firstErr == nil {
+				firstErr = cerr
+			}
+		}
+	}
+	if rerr := os.Remove(path); rerr != nil {
+		if firstErr == nil {
+			firstErr = rerr
+		}
+		return firstErr
+	}
+	if onFile != nil {
+		onFile(path)
+	}
+	return firstErr
 }
 
 func runCommand(parent context.Context, cmd []string, timeout time.Duration) (string, error) {
