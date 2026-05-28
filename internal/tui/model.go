@@ -1011,15 +1011,6 @@ func (m *model) renderHeaderRow(r row, isCursor bool) string {
 }
 
 func (m *model) renderItemRow(width int, c scan.Candidate, isCursor bool) string {
-	cb := checkboxOff
-	if c.Selected {
-		cb = checkboxOn
-	}
-	// "  ●  " on the left = leftPad(2) + dot(1) + space(2) ; the dot stays its
-	// own color even when the row is highlighted because it's rendered outside
-	// the selection style.
-	dot := categoryStyle(c.Category).Render("●")
-
 	pathW := max(width-38, 20)
 	label := c.DisplayTitle()
 	if c.Action == scan.ActionDelete {
@@ -1029,29 +1020,78 @@ func (m *model) renderItemRow(width int, c scan.Candidate, isCursor bool) string
 	if c.Action == scan.ActionCommand {
 		tag = "⚡ "
 	}
-	// Style the visible title first (smart-probe rows get warn colour), then
-	// pad to display width with plain spaces. padRight measures via
-	// lipgloss.Width so the ANSI escapes in the styled prefix don't throw
-	// the alignment off.
-	visible := truncatePath(tag+label, pathW)
+	visText := truncatePath(tag+label, pathW)
+
+	sizeText := padLeft(humanBytes(c.SizeBytes), 9)
+	ageText := padLeft(humanAge(c.LastTouched), 9)
+
+	if isCursor {
+		return m.renderItemRowCursor(width, pathW, c, visText, sizeText, ageText)
+	}
+
+	cb := checkboxOff
+	if c.Selected {
+		cb = checkboxOn
+	}
+	// The dot stays its own color — rendered outside any row style.
+	dot := categoryStyle(c.Category).Render("●")
+	visible := visText
 	if c.Action == scan.ActionCommand {
 		visible = smartTitleStyle.Render(visible)
 	}
+	// padRight measures via lipgloss.Width so the ANSI escapes in the styled
+	// prefix don't throw the alignment off.
 	paddedPath := padRight(visible, pathW)
 	inner := fmt.Sprintf("%s %s  %s   %s",
 		cb,
 		paddedPath,
-		sizeStyle.Render(padLeft(humanBytes(c.SizeBytes), 9)),
-		ageStyle.Render(padLeft(humanAge(c.LastTouched), 9)),
+		sizeStyle.Render(sizeText),
+		ageStyle.Render(ageText),
 	)
-	if isCursor {
-		inner = itemSelectedStyle.Render(inner)
+	return "  " + dot + "  " + inner
+}
+
+// renderItemRowCursor renders the highlighted cursor row as a continuous band.
+// lipgloss (v1.1) drops the background at every inner color reset, so each
+// segment AND separator is rendered through a background-carrying style with no
+// bare characters between them — every reset is immediately followed by the
+// next segment re-asserting the band, leaving no gaps. The trailing pad extends
+// the band to the full terminal width so the eye can trace a row across to the
+// size/age columns.
+func (m *model) renderItemRowCursor(width, pathW int, c scan.Candidate, visText, sizeText, ageText string) string {
+	bg := lipgloss.NewStyle().Background(colorSelBg)
+	band := func(st lipgloss.Style, s string) string { return st.Background(colorSelBg).Render(s) }
+
+	cbStyle := lipgloss.NewStyle().Foreground(colorMuted).Bold(true)
+	cbText := "[ ]"
+	if c.Selected {
+		cbStyle = lipgloss.NewStyle().Foreground(colorGood).Bold(true)
+		cbText = "[x]"
 	}
-	indent := "  "
-	if isCursor {
-		indent = cursorArrowStyle.Render("▸ ")
+
+	pathStyle := lipgloss.NewStyle().Bold(true)
+	if c.Action == scan.ActionCommand {
+		pathStyle = pathStyle.Foreground(colorWarn)
 	}
-	return indent + dot + "  " + inner
+	pathPad := max(pathW-lipgloss.Width(visText), 0)
+
+	// Order mirrors the non-cursor row: ▸ · dot · "  " · checkbox · " " · path · "  " · size · "   " · age.
+	var b strings.Builder
+	b.WriteString(band(cursorArrowStyle, "▸ "))
+	b.WriteString(band(categoryStyle(c.Category), "●"))
+	b.WriteString(bg.Render("  "))
+	b.WriteString(band(cbStyle, cbText))
+	b.WriteString(bg.Render(" "))
+	b.WriteString(band(pathStyle, visText))
+	b.WriteString(bg.Render(strings.Repeat(" ", pathPad)))
+	b.WriteString(bg.Render("  "))
+	b.WriteString(band(sizeStyle, sizeText))
+	b.WriteString(bg.Render("   "))
+	b.WriteString(band(ageStyle.Bold(true), ageText))
+
+	used := 2 + 1 + 2 + 3 + 1 + pathW + 2 + 9 + 3 + 9
+	b.WriteString(bg.Render(strings.Repeat(" ", max(width-used, 0))))
+	return b.String()
 }
 
 func (m *model) renderDetail() string {

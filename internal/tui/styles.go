@@ -12,6 +12,9 @@ var (
 	colorGood   = lipgloss.AdaptiveColor{Light: "#1F9D55", Dark: "#9ECE6A"}
 	colorWarn   = lipgloss.AdaptiveColor{Light: "#B97C00", Dark: "#E0AF68"}
 	colorDanger = lipgloss.AdaptiveColor{Light: "#C13030", Dark: "#F7768E"}
+	// colorSelBg is the subtle band behind the cursor row — just enough lift off
+	// the terminal background to trace a row left-to-right, not a loud highlight.
+	colorSelBg = lipgloss.AdaptiveColor{Light: "#E6E8F2", Dark: "#2A2F45"}
 )
 
 var (
@@ -30,8 +33,6 @@ var (
 
 	groupHeaderStyle         = lipgloss.NewStyle().Bold(true)
 	groupHeaderSelectedStyle = lipgloss.NewStyle().Bold(true) // arrow shows cursor, not bg
-
-	itemSelectedStyle = lipgloss.NewStyle().Bold(true)
 
 	cursorArrowStyle = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
 	smartTitleStyle  = lipgloss.NewStyle().Bold(true).Foreground(colorWarn)
