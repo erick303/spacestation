@@ -262,6 +262,12 @@ func (m *model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "G", "end":
 		m.cursor = len(m.rows) - 1
 		m.armedGroupActive = false
+	case "]", "}":
+		m.jumpToGroup(+1)
+		m.armedGroupActive = false
+	case "[", "{":
+		m.jumpToGroup(-1)
+		m.armedGroupActive = false
 	case "pgdown", " ":
 		// space toggles current item
 		if msg.String() == " " {
@@ -352,6 +358,22 @@ func (m *model) selectGroupAtCursor(sel bool) {
 func (m *model) selectAll(sel bool) {
 	for i := range m.cands {
 		m.cands[i].Selected = sel
+	}
+}
+
+// jumpToGroup moves the cursor to the next/previous header row.
+// dir = +1 or -1. Wraps at the ends of the list.
+func (m *model) jumpToGroup(dir int) {
+	if len(m.rows) == 0 {
+		return
+	}
+	n := len(m.rows)
+	for i := 1; i <= n; i++ {
+		idx := (m.cursor + dir*i + n) % n
+		if m.rows[idx].isHeader {
+			m.cursor = idx
+			return
+		}
 	}
 }
 
@@ -534,7 +556,7 @@ func (m *model) viewBrowsing() string {
 
 	// Two compact help lines so they never wrap unpredictably on narrow terms.
 	helpLine1 := "space toggle  a select-group  u clear-group  A select-all  c clear"
-	helpLine2 := "tab collapse  v dashboard  enter clean  r rescan  q quit"
+	helpLine2 := "tab collapse  [ / ] prev/next group  v dashboard  enter clean  r rescan  q quit"
 	help := helpStyle.Render(helpLine1 + "\n" + helpLine2)
 
 	flashLine := ""
@@ -606,56 +628,29 @@ func (m *model) renderList(width, height int) string {
 		}
 	}
 
-	// Scroll thumb: figure out which visible rows correspond to the scrollbar
-	// thumb so we can light up a vertical bar at the right edge.
-	viewport := end - start
-	total := len(m.rows)
-	thumbStart, thumbEnd := 0, viewport
-	if total > viewport {
-		thumbStart = start * viewport / total
-		thumbSize := viewport * viewport / total
-		if thumbSize < 1 {
-			thumbSize = 1
-		}
-		thumbEnd = thumbStart + thumbSize
-		if thumbEnd > viewport {
-			thumbEnd = viewport
-		}
-	}
-
+	// Render at most `height` output lines so the surrounding chrome (top
+	// status, dashboard, detail, help) stays visible. The blank line between
+	// groups counts toward this budget.
 	var b strings.Builder
-	for i := start; i < end; i++ {
+	linesOut := 0
+	for i := start; i < end && linesOut < height; i++ {
 		isCursor := i == m.cursor
 		r := m.rows[i]
-		// Breathing room above each group header — except for the very first
-		// visible row, which would otherwise create a leading blank.
-		if i > start && r.isHeader {
-			// Blank separator row also has a scrollbar tick if applicable.
-			b.WriteString(scrollTick(width, i-start, thumbStart, thumbEnd))
+		if i > start && r.isHeader && linesOut < height-1 {
 			b.WriteString("\n")
+			linesOut++
 		}
-
 		var line string
 		if r.isHeader {
 			line = m.renderHeaderRow(r, isCursor)
 		} else {
 			line = m.renderItemRow(width, m.cands[r.candIdx], isCursor)
 		}
-		// Append scroll-thumb indicator at the right edge.
-		line += "  " + scrollTick(width, i-start, thumbStart, thumbEnd)
 		b.WriteString(line)
 		b.WriteString("\n")
+		linesOut++
 	}
 	return b.String()
-}
-
-// scrollTick returns a single rune at the right edge of a row indicating
-// whether that row is currently within the scrollbar thumb.
-func scrollTick(_ int, viewportIdx, thumbStart, thumbEnd int) string {
-	if viewportIdx >= thumbStart && viewportIdx < thumbEnd {
-		return lipgloss.NewStyle().Foreground(colorAccent).Render("▎")
-	}
-	return mutedStyle.Render("·")
 }
 
 func (m *model) renderHeaderRow(r row, isCursor bool) string {
@@ -675,10 +670,12 @@ func (m *model) renderHeaderRow(r row, isCursor bool) string {
 	// Category color on the name itself ties the row back to the dashboard mix-bar segment.
 	name := categoryStyle(r.cat).Bold(true).Render(r.cat.String())
 	body := fmt.Sprintf("%s %s  %s", caret, name, selPart)
+	indent := "  "
 	if isCursor {
-		return "  " + groupHeaderSelectedStyle.Render(body)
+		indent = cursorArrowStyle.Render("▸ ")
+		return indent + groupHeaderSelectedStyle.Render(body)
 	}
-	return "  " + groupHeaderStyle.Render(body)
+	return indent + groupHeaderStyle.Render(body)
 }
 
 func (m *model) renderItemRow(width int, c scan.Candidate, isCursor bool) string {
@@ -705,10 +702,9 @@ func (m *model) renderItemRow(width int, c scan.Candidate, isCursor bool) string
 	}
 	path := truncatePath(tag+label, pathW)
 	paddedPath := padRight(path, pathW)
-	if c.Action == scan.ActionCommand && !isCursor {
+	if c.Action == scan.ActionCommand {
 		// Style only the visible title; trailing spaces stay unstyled so they
-		// don't get bold-yellow under the size/age columns. Safe when the path
-		// was truncated (paddedPath == path, no trailing).
+		// don't get bold-yellow under the size/age columns.
 		if len(paddedPath) > len(path) {
 			paddedPath = smartTitleStyle.Render(path) + paddedPath[len(path):]
 		} else {
@@ -723,10 +719,12 @@ func (m *model) renderItemRow(width int, c scan.Candidate, isCursor bool) string
 	)
 	if isCursor {
 		inner = itemSelectedStyle.Render(inner)
-	} else {
-		inner = itemStyle.Render(inner)
 	}
-	return "  " + dot + "  " + inner
+	indent := "  "
+	if isCursor {
+		indent = cursorArrowStyle.Render("▸ ")
+	}
+	return indent + dot + "  " + inner
 }
 
 func (m *model) renderDetail(width int) string {

@@ -29,20 +29,14 @@ var (
 
 	statMutedStyle = lipgloss.NewStyle().Foreground(colorMuted).PaddingLeft(2)
 
-	groupHeaderStyle = lipgloss.NewStyle().Bold(true)
+	groupHeaderStyle         = lipgloss.NewStyle().Bold(true)
+	groupHeaderSelectedStyle = lipgloss.NewStyle().Bold(true) // arrow shows cursor, not bg
 
-	groupHeaderSelectedStyle = lipgloss.NewStyle().
-					Bold(true).
-					Background(colorAccent).
-					PaddingRight(1)
+	itemStyle         = lipgloss.NewStyle()
+	itemSelectedStyle = lipgloss.NewStyle().Bold(true)
 
-	itemStyle = lipgloss.NewStyle()
-
-	itemSelectedStyle = lipgloss.NewStyle().
-				Foreground(colorBg).
-				Background(colorAccent)
-
-	smartTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(colorWarn)
+	cursorArrowStyle = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
+	smartTitleStyle  = lipgloss.NewStyle().Bold(true).Foreground(colorWarn)
 
 	checkboxOn  = lipgloss.NewStyle().Foreground(colorGood).Render("[x]")
 	checkboxOff = lipgloss.NewStyle().Foreground(colorMuted).Render("[ ]")
