@@ -55,7 +55,9 @@ func Run(ctx context.Context, opts Options, progress chan<- Progress) []Candidat
 	)
 
 	addCandidate := func(c Candidate) {
-		c.Normalize()
+		if c.Title == "" {
+			c.Title = c.Path
+		}
 		mu.Lock()
 		candidates = append(candidates, c)
 		totalBytes += c.SizeBytes

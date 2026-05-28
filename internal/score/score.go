@@ -25,7 +25,6 @@ func Apply(cs []scan.Candidate, cfg config.Config) {
 		// always safe to empty regardless of mtime.
 		if c.LastTouched.IsZero() && c.Category != scan.CatTrash {
 			c.Reason = "unknown age — not auto-selecting"
-			c.Normalize()
 			continue
 		}
 		age := now.Sub(c.LastTouched)
@@ -57,6 +56,5 @@ func Apply(cs []scan.Candidate, cfg config.Config) {
 		default:
 			c.Reason = fmt.Sprintf("User content, %dd old", ageDays)
 		}
-		c.Normalize()
 	}
 }

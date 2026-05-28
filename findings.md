@@ -31,12 +31,6 @@ _(none open — see Resolved section at bottom)_
 **Files:** `internal/trash/trash.go` (90 LOC), called from `internal/cleanup/cleanup.go:62, 64, 75`.
 **Verification:** confirmed. One caller, no abstraction, no tests. The split adds a package boundary without an interface or alternate implementation. Recommend unexported `moveToTrash` / `hardDelete` helpers in `cleanup`.
 
-### M3. `Candidate` has parallel enum + `*Str` fields
-**File:** `internal/scan/types.go:122-156`
-**Verification:** confirmed. `Category/CategoryStr`, `Safety/SafetyStr`, `Action/ActionStr` exist purely so JSON output gets human-readable strings. `Normalize()` materializes them. Forgetting to call it leaves the JSON fields empty — there are exactly two call sites (`scan.go:58` via `addCandidate`, `score.go:45`); any future code path that constructs a Candidate must remember.
-
-**Fix:** implement `MarshalJSON` on `Category`/`Safety`/`Action` (or `encoding.TextMarshaler`) and delete the `*Str` fields and `Normalize()`.
-
 ### M4. `Category.SortOrder()` duplicates iota declaration order
 **File:** `internal/scan/types.go:55-84` vs `:7-21`
 **Verification:** confirmed. The switch encodes ~the same order as the iota constants except GoCache and Xcode are swapped (iota: GoCache=5, Xcode=6; sort: Xcode=5, GoCache=6) and Docker and Homebrew similarly. Two parallel orderings will drift the next time someone adds a category. Use a `[...]int{}` lookup table indexed by `int(c)`, or — if no order swaps are needed — reorder the iota constants and use `int(c)` directly.
@@ -243,6 +237,11 @@ Resolved. `main.go` now exposes a `--version` flag that reads `runtime/debug.Rea
 
 ### H8. `tea.WithMouseCellMotion()` enabled with zero mouse handlers
 Resolved. Removed `tea.WithMouseCellMotion()` from `tea.NewProgram` at `internal/tui/model.go:23`. No `tea.MouseMsg` cases exist in Update, so the option was pure cost — terminal emulators (iTerm, Alacritty, etc.) intercept the mouse stream and require Option/Shift to copy text. Native click-drag-to-copy now works again. The option can come back the day a mouse handler is added.
+
+### M3. Collapse parallel enum + `*Str` fields via `MarshalJSON`
+Resolved. `Category`, `Safety`, and `Action` each got a `MarshalJSON` method that delegates to `String()`, so the encoder produces the same human-readable values automatically. The three `*Str` mirror fields on `Candidate` are gone, the `Category`/`Safety`/`Action` fields lose their `json:"-"` and take the public JSON tags, and `Normalize()` is gone. The Title fallback (`if Title == "" { Title = Path }`) that `Normalize` also did moves inline into `scan.addCandidate`. The two stray `c.Normalize()` calls in `score.Apply` were no-ops once mirrors disappeared and were dropped.
+
+Field order on the marshalled struct is unchanged, so `--json` output is structurally byte-identical: same keys in the same order, same string values for every (category, safety, action) tuple. Confirmed by capturing `--json --dry-run` before and after; the only diff was timestamp drift between the two runs.
 
 ### M10. Dead-code purge
 Resolved. Deleted, all confirmed unused by grep:

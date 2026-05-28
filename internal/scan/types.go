@@ -1,6 +1,9 @@
 package scan
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type Category int
 
@@ -19,6 +22,10 @@ const (
 	CatTrash
 	CatOther
 )
+
+func (c Category) MarshalJSON() ([]byte, error) {
+	return json.Marshal(c.String())
+}
 
 func (c Category) String() string {
 	switch c {
@@ -99,6 +106,10 @@ const (
 	ActionCommand               // run the ecosystem's own cleanup command
 )
 
+func (a Action) MarshalJSON() ([]byte, error) {
+	return json.Marshal(a.String())
+}
+
 func (a Action) String() string {
 	switch a {
 	case ActionCommand:
@@ -106,6 +117,10 @@ func (a Action) String() string {
 	default:
 		return "delete"
 	}
+}
+
+func (s Safety) MarshalJSON() ([]byte, error) {
+	return json.Marshal(s.String())
 }
 
 func (s Safety) String() string {
@@ -122,28 +137,16 @@ func (s Safety) String() string {
 type Candidate struct {
 	Path        string    `json:"path"`
 	Title       string    `json:"title,omitempty"` // human-friendly label; falls back to Path
-	Category    Category  `json:"-"`
-	CategoryStr string    `json:"category"`
+	Category    Category  `json:"category"`
 	SizeBytes   int64     `json:"size_bytes"`
 	LastTouched time.Time `json:"last_touched"`
-	Safety      Safety    `json:"-"`
-	SafetyStr   string    `json:"safety"`
+	Safety      Safety    `json:"safety"`
 	Selected    bool      `json:"selected"`
 	Reason      string    `json:"reason"`
 	Detail      string    `json:"detail"`
 
-	Action    Action   `json:"-"`
-	ActionStr string   `json:"action"`
-	Command   []string `json:"command,omitempty"` // when Action == ActionCommand
-}
-
-func (c *Candidate) Normalize() {
-	c.CategoryStr = c.Category.String()
-	c.SafetyStr = c.Safety.String()
-	c.ActionStr = c.Action.String()
-	if c.Title == "" {
-		c.Title = c.Path
-	}
+	Action  Action   `json:"action"`
+	Command []string `json:"command,omitempty"` // when Action == ActionCommand
 }
 
 // DisplayTitle returns Title if set, else Path.
