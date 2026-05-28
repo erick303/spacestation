@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime"
 	"runtime/debug"
 	"strings"
 
@@ -16,6 +17,16 @@ import (
 )
 
 func main() {
+	// spacestation is macOS-only: it shells out to osascript for the Trash
+	// action, knows ~/Library/* layout, and its smart probes call macOS
+	// ecosystem CLIs (brew, xcrun simctl). Code happens to cross-compile,
+	// but the runtime behaviour is meaningless on other platforms — fail
+	// fast with a clear message rather than silently producing nothing.
+	if runtime.GOOS != "darwin" {
+		fmt.Fprintf(os.Stderr, "spacestation is macOS-only (built for darwin, running on %s)\n", runtime.GOOS)
+		os.Exit(1)
+	}
+
 	var (
 		jsonOut     = flag.Bool("json", false, "non-interactive: print candidates as JSON and exit")
 		dryRun      = flag.Bool("dry-run", false, "with --json, print what would be deleted (default-selected only)")
@@ -26,7 +37,7 @@ func main() {
 		showVersion = flag.Bool("version", false, "print version and exit")
 		scanRoot    rootFlag
 	)
-	flag.Var(&scanRoot, "scan-root", "additional root to scan (repeatable; overrides config when set)")
+	flag.Var(&scanRoot, "scan-root", "root to scan for project artifact dirs (repeatable; replaces config project_roots, not additive)")
 	flag.Parse()
 
 	if *showVersion {

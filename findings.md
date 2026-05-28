@@ -70,12 +70,6 @@ Most hygiene items the original review flagged are already in place (LICENSE, .g
 **Impact:** README's `git clone https://github.com/erick303/spacestation` won't resolve until the repo is pushed; `go install github.com/erick303/spacestation@latest` won't work without at least one tag.
 **Fix:** push to `github.com/erick303/spacestation`, tag `v0.1.0`, update README install snippet to lead with `go install ...@latest`.
 
-### Hy2. No `//go:build darwin` constraints; macOS-only code compiles on Linux
-**Files:** `internal/trash/trash.go` (osascript), `internal/scan/fixed.go` (`~/Library/...`), parts of `internal/scan/smart.go` (`xcrun simctl`), `internal/scan/disk.go` (`syscall.Statfs_t` — actually portable, but Statfs semantics differ).
-**Verification:** confirmed by `grep -r "//go:build" .` returning nothing.
-**Impact:** the tool builds cleanly on Linux and explodes at runtime when `osascript` isn't on PATH.
-**Fix:** add `//go:build darwin` to `trash.go` and to the macOS-specific bits, or a `runtime.GOOS != "darwin"` check at `main.go` startup that prints a clear error.
-
 ### Hy4. Test coverage is concentrated in the wrong place
 **Verification:** confirmed.
 - `internal/scan/scan_test.go` exercises walk classification, `.git` skip, `DirSize` sum, `LastTouched`.
@@ -104,6 +98,9 @@ After steps 1–4 the tool is honest about what it does. After 5–8 the codebas
 ---
 
 ## Resolved
+
+### Hy2. No `//go:build darwin` constraints; macOS-only code compiles on Linux
+Resolved with a runtime guard rather than build constraints. Verified by cross-compile: the code is source-portable (no actually-Darwin-only syscalls — `Stat_t`/`Statfs_t` field accesses go through portable casts), so build tags wouldn't catch anything at compile time. Added an early `runtime.GOOS != "darwin"` check at the top of `main()` that prints `"spacestation is macOS-only (built for darwin, running on <goos>)"` to stderr and exits 1. Captures the real concern (a user on another platform getting a useless silent binary) without the file-shuffle dance of dual `main_darwin.go` / `main_other.go` stubs that would add no signal.
 
 ### M12. Unbounded fan-out under expand-probes
 Resolved. `runFixedProbe`'s expand path now caps child concurrency with a `make(chan struct{}, workers)` semaphore. Before: `~/Library/Caches` with N children spawned N goroutines each running `CachedDirSize(ctx, ..., workers)` for a worst case of ~N × workers concurrent walker goroutines (and FDs). Now: at most `workers × workers`, which scales with the worker pool the caller already chose. `defer func() { <-childSem }()` releases the slot even on panic.
