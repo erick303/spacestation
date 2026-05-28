@@ -126,7 +126,7 @@ the regular path-based candidate is used instead.
 Discovered by walking your configured project roots (default `~/projects`):
 
 `node_modules`, `.pnpm-store`, `.next`, `.nuxt`, `.turbo`, `.vite`,
-`.parcel-cache`, `dist`, `out`, `.venv`, `venv`, `__pycache__`,
+`.parcel-cache`, `dist`, `out`, `.venv`, `venv`, `.virtualenv`, `__pycache__`,
 `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.tox`, `target` (Rust/Maven),
 `.gradle`, `build`, `DerivedData`.
 
@@ -166,14 +166,19 @@ downloads_min_size_mb = 100
 
 [delete]
 mode = "trash"           # "trash" or "hard"
-
-[patterns]
-  [patterns.extra]
-  names = []             # add your own dir names to detect, e.g. ".bun-cache"
 ```
 
 CLI flags override config: `--scan-root <path>` (repeatable),
 `--no-downloads`, `--no-trash`, `--hard`.
+
+> **`--scan-root` only finds project artifact dirs.** A scan root is walked the
+> same way as `project_roots`: it reports *only* the regenerable artifact
+> directories listed under [Path-based candidates](#path-based-candidates-action-delete)
+> (`node_modules`, `target`, `dist`, …). Loose files and unrecognized folders —
+> screenshots, documents, downloads sitting on your `~/Desktop` — are never
+> reported, no matter how large. The flag also **replaces** `project_roots`
+> rather than adding to it, so `--scan-root ~/Desktop` scans the Desktop *instead
+> of* `~/projects` (fixed-path, Downloads, and Trash probes still run).
 
 ## How it stays fast
 
