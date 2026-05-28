@@ -180,11 +180,6 @@ Most hygiene items the original review flagged are already in place (LICENSE, .g
 **Impact:** the tool builds cleanly on Linux and explodes at runtime when `osascript` isn't on PATH.
 **Fix:** add `//go:build darwin` to `trash.go` and to the macOS-specific bits, or a `runtime.GOOS != "darwin"` check at `main.go` startup that prints a clear error.
 
-### Hy3. No `--version` flag / build-info embedding
-**File:** `main.go:17-29`
-**Verification:** confirmed by inspection. For a tool installed via `go install`, users can't report which version they're running.
-**Fix:** add `--version` that prints `runtime/debug.ReadBuildInfo()` VCS revision. Zero-config, no ldflags needed under Go 1.18+.
-
 ### Hy4. Test coverage is concentrated in the wrong place
 **Verification:** confirmed.
 - `internal/scan/scan_test.go` exercises walk classification, `.git` skip, `DirSize` sum, `LastTouched`.
@@ -253,3 +248,9 @@ Added `internal/score/score_test.go` with 8 table-driven cases (zero mtime regen
 
 ### M16. `SaveSizeCache` marshals the map without holding the lock
 Resolved (rolled into H1). `SaveSizeCache` now `RLock`s for the full duration of `json.Marshal` rather than releasing before the marshal. Multiple concurrent readers are still allowed; concurrent writers (CachedDirSize cache-misses) wait their turn. Eliminates the "concurrent map iter + write" panic that H1's improved rescan made reliably triggerable.
+
+### H5. Size-cache key ignores inode/device
+Resolved. `sizeCacheEntry` now carries `Dev` and `Ino` (omitempty on platforms without `syscall.Stat_t`). `CachedDirSize` records them on write and verifies them on hit alongside the mtime, so a rename-collision or volume swap that happens to leave mtimes equal no longer returns the stale cached size. `TestCachedDirSizeRespectsInode` pre-populates an entry, mutates the in-memory Ino + size, and asserts the next lookup recomputes rather than returning the poisoned value.
+
+### Hy3. No `--version` flag / build-info embedding
+Resolved. `main.go` now exposes a `--version` flag that reads `runtime/debug.ReadBuildInfo()` and reports either the module version (for `go install` builds) or the VCS commit + dirty flag (for local builds), falling back to "dev" when neither is available. Zero build-tooling dependency — no `-ldflags`, no `vendor.go` shenanigans.
