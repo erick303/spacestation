@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -90,6 +91,14 @@ type model struct {
 	pendingTrash  bool // the pending confirm/clean is an empty/remove-from-Trash op
 	trashEmptyAll bool // true = empty the whole Trash; false = remove checked items
 
+	// live progress for the permanent Trash removal. trashProgressCh streams
+	// one TrashProgress per item; trashDone/trashTotal drive the count + bar,
+	// trashLog holds the last few item names so the user sees it run through.
+	trashProgressCh chan cleanup.TrashProgress
+	trashDone       int
+	trashTotal      int
+	trashLog        []string
+
 	// "press space again to confirm group toggle" arm state
 	armedGroupCat    scan.Category
 	armedGroupActive bool
@@ -151,6 +160,10 @@ type cleanDoneMsg struct {
 	elapsed time.Duration
 	bytes   int64
 }
+type trashProgressMsg struct {
+	ch chan cleanup.TrashProgress
+	p  cleanup.TrashProgress
+}
 type tickMsg time.Time
 
 func tickEvery() tea.Cmd {
@@ -199,6 +212,21 @@ func (m *model) pollProgress() tea.Cmd {
 	}
 }
 
+// pollTrashProgress reads one progress event from the current trash-removal
+// channel. Like pollProgress, it tags the message with the channel so a stale
+// event can be dropped, and returns nil (stopping the poll loop) once the
+// channel is closed by the removal goroutine.
+func (m *model) pollTrashProgress() tea.Cmd {
+	ch := m.trashProgressCh
+	return func() tea.Msg {
+		p, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return trashProgressMsg{ch: ch, p: p}
+	}
+}
+
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -244,6 +272,25 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.stage = stageBrowsing
 		return m, nil
 
+	case trashProgressMsg:
+		if msg.ch != m.trashProgressCh {
+			return m, nil // stale: from a previous removal
+		}
+		m.trashDone = msg.p.Done
+		if msg.p.Total > 0 {
+			m.trashTotal = msg.p.Total // authoritative count from ReadDir
+		}
+		// Rolling log of the last 3 items, newest last.
+		name := filepath.Base(msg.p.Path)
+		if msg.p.Err != nil {
+			name += " (failed)"
+		}
+		m.trashLog = append(m.trashLog, name)
+		if len(m.trashLog) > 3 {
+			m.trashLog = m.trashLog[len(m.trashLog)-3:]
+		}
+		return m, m.pollTrashProgress()
+
 	case cleanDoneMsg:
 		m.cleanResults = msg.results
 		m.cleanedBytes = msg.bytes
@@ -279,7 +326,9 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.stage = stageCleaning
 			m.cleanStart = time.Now()
 			if m.pendingTrash {
-				return m, m.executeTrashClean()
+				// Stream per-item progress alongside the removal so the
+				// cleaning screen isn't a silent spinner on big Trashes.
+				return m, tea.Batch(m.executeTrashClean(), m.pollTrashProgress())
 			}
 			return m, m.executeClean()
 		case "n", "N", "esc", "q":
@@ -687,12 +736,34 @@ func (m *model) executeTrashClean() tea.Cmd {
 	trashDir := config.Expand("~/.Trash")
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cleanCancel = cancel
+
+	// Set up live progress. Seed trashTotal from the scanned count so the bar
+	// has a denominator immediately; cleanup will correct it from the real
+	// ReadDir count (which also covers hidden Trash entries) on the first event.
+	ch := make(chan cleanup.TrashProgress, 256)
+	m.trashProgressCh = ch
+	m.trashDone = 0
+	m.trashLog = nil
+	if seed, _ := m.trashTargetStats(); seed > 0 {
+		m.trashTotal = seed
+	}
+	// Non-blocking so parallel removal workers are never throttled by the UI.
+	// Dropping an event is harmless: each event carries the running Done count,
+	// so the count stays accurate; we only ever lose an intermediate log line.
+	progress := func(p cleanup.TrashProgress) {
+		select {
+		case ch <- p:
+		default:
+		}
+	}
+
 	return func() tea.Msg {
 		defer cancel()
+		defer close(ch)
 		start := time.Now()
 		var results []cleanup.Result
 		if emptyAll {
-			err := cleanup.EmptyTrash(ctx, trashDir)
+			err := cleanup.EmptyTrash(ctx, trashDir, progress)
 			results = []cleanup.Result{{
 				Candidate: scan.Candidate{
 					Path:     trashDir,
@@ -703,7 +774,7 @@ func (m *model) executeTrashClean() tea.Cmd {
 				Err: err,
 			}}
 		} else {
-			results = cleanup.RemoveFromTrash(ctx, targets)
+			results = cleanup.RemoveFromTrash(ctx, targets, progress)
 		}
 		for _, r := range results {
 			if r.Err == nil {
@@ -1016,28 +1087,68 @@ func (m *model) viewConfirmTrash() string {
 }
 
 func (m *model) viewCleaning() string {
+	if m.pendingTrash {
+		return m.viewCleaningTrash()
+	}
 	title := headerStyle.Render("spacestation")
 	verb := "cleaning…"
-	if m.pendingTrash {
-		verb = "removing from Trash…"
-	}
 	if m.cleanCancelled {
 		verb = warnStyle.Render("cancelling… (finishing current step)")
 	}
 	count, bytes := m.countSelectedCleanable(), m.cleanableBytes()
-	if m.pendingTrash {
-		count, bytes = m.trashTargetStats()
-	}
 	line := fmt.Sprintf("%s  %s  %s %d items, %s",
 		title, m.spinner.View(), verb, count, humanBytes(bytes))
 	hint := "please wait — Finder is moving files to Trash    " + mutedStyle.Render("esc cancel · q quit")
-	if m.pendingTrash {
-		hint = "please wait — permanently removing Trash items    " + mutedStyle.Render("esc cancel · q quit")
-	}
 	if m.cleanCancelled {
 		hint = mutedStyle.Render("waiting for the in-flight step to wind down…")
 	}
 	return "\n" + line + "\n\n" + helpStyle.Render(hint)
+}
+
+// viewCleaningTrash renders the permanent-Trash-removal screen with a live
+// count, a progress bar, and a rolling log of the last few items removed, so a
+// long empty (which can take minutes) shows continuous activity.
+func (m *model) viewCleaningTrash() string {
+	title := headerStyle.Render("spacestation")
+	verb := "removing from Trash…"
+	if m.cleanCancelled {
+		verb = warnStyle.Render("cancelling… (finishing current item)")
+	}
+	_, bytes := m.trashTargetStats()
+	total := m.trashTotal
+	line := fmt.Sprintf("%s  %s  %s %d/%d items, %s",
+		title, m.spinner.View(), verb, m.trashDone, total, humanBytes(bytes))
+
+	bar := mutedStyle.Render(renderProgressBar(m.trashDone, total, 24))
+
+	// Rolling log: pad to 3 lines so the layout doesn't jump as it fills.
+	logLines := make([]string, 0, 3)
+	for _, name := range m.trashLog {
+		logLines = append(logLines, mutedStyle.Render("  removed  ")+scanningStyle.Render(name))
+	}
+	for len(logLines) < 3 {
+		logLines = append(logLines, mutedStyle.Render("  …"))
+	}
+	logBlock := strings.Join(logLines, "\n")
+
+	hint := "please wait — permanently removing Trash items    " + mutedStyle.Render("esc cancel · q quit")
+	if m.cleanCancelled {
+		hint = mutedStyle.Render("waiting for the in-flight item to wind down…")
+	}
+	return "\n" + line + "\n\n  " + bar + "\n\n" + logBlock + "\n\n" + helpStyle.Render(hint)
+}
+
+// renderProgressBar draws a fixed-width [████░░░░] bar with a trailing percent.
+// total <= 0 yields an indeterminate (all-empty) bar — we don't know the
+// denominator yet, but the count line still moves.
+func renderProgressBar(done, total, width int) string {
+	pct := 0.0
+	if total > 0 {
+		pct = min(float64(done)/float64(total), 1)
+	}
+	filled := int(pct * float64(width))
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
+	return fmt.Sprintf("%s  %3.0f%%", bar, pct*100)
 }
 
 func (m *model) viewDone() string {
@@ -1057,10 +1168,17 @@ func (m *model) viewDone() string {
 	if m.pendingTrash {
 		verb = "permanently removed from Trash"
 	}
+	// Empty-all returns a single aggregate result, so `ok` would read 1.
+	// On full success the real item count is trashDone (also covers hidden
+	// entries); use it so the summary matches the count shown while removing.
+	items := ok
+	if m.pendingTrash && m.trashEmptyAll && fail == 0 && m.trashDone > 0 {
+		items = m.trashDone
+	}
 	summary := fmt.Sprintf("  %s %s across %d items in %s",
 		sizeStyle.Render(humanBytes(m.cleanedBytes)),
 		verb,
-		ok,
+		items,
 		m.cleanElapsed.Truncate(100*time.Millisecond),
 	)
 	if fail > 0 {

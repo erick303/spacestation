@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/erick303/spacestation/internal/scan"
@@ -97,16 +98,34 @@ func Execute(ctx context.Context, cands []scan.Candidate, mode Mode) []Result {
 	return results
 }
 
+// TrashProgress reports the removal of a single Trash item. It is emitted once
+// per item as it finishes (success or failure), so the UI can show a running
+// count and a log of what just went. Done is the number of items finished so
+// far (1..Total); Total is fixed for the run.
+type TrashProgress struct {
+	Path  string // the item just removed (or attempted)
+	Done  int    // items finished so far, including this one
+	Total int    // total items in this removal
+	Err   error  // non-nil if this item failed to remove
+}
+
 // RemoveFromTrash permanently removes each candidate's Path (os.RemoveAll), in
 // parallel. Items already in the Trash can't be re-trashed, so removal is always
 // permanent regardless of delete mode. Returns one Result per input candidate,
 // in input order, so the same done-screen / size-cache code path applies.
-func RemoveFromTrash(ctx context.Context, cands []scan.Candidate) []Result {
+//
+// progress, if non-nil, is called once per item as it finishes. It may be
+// called concurrently from worker goroutines, so it must be safe for that.
+func RemoveFromTrash(ctx context.Context, cands []scan.Candidate, progress func(TrashProgress)) []Result {
 	results := make([]Result, len(cands))
 	for i, c := range cands {
 		results[i] = Result{Candidate: c}
 	}
-	var wg sync.WaitGroup
+	var (
+		wg   sync.WaitGroup
+		done int64
+	)
+	total := len(cands)
 	sem := make(chan struct{}, 8)
 	for i, c := range cands {
 		if ctx.Err() != nil {
@@ -123,8 +142,13 @@ func RemoveFromTrash(ctx context.Context, cands []scan.Candidate) []Result {
 				results[i].Err = err
 				return
 			}
-			if err := os.RemoveAll(p); err != nil {
+			err := os.RemoveAll(p)
+			if err != nil {
 				results[i].Err = err
+			}
+			if progress != nil {
+				n := atomic.AddInt64(&done, 1)
+				progress(TrashProgress{Path: p, Done: int(n), Total: total, Err: err})
 			}
 		}()
 	}
@@ -134,15 +158,18 @@ func RemoveFromTrash(ctx context.Context, cands []scan.Candidate) []Result {
 
 // EmptyTrash removes all contents of `dir` (typically ~/.Trash), including
 // hidden entries, without removing the dir itself. Thin wrapper over emptyTrash.
-func EmptyTrash(ctx context.Context, dir string) error {
-	return emptyTrash(ctx, dir)
+//
+// progress, if non-nil, is called once per top-level entry as it finishes; see
+// RemoveFromTrash for concurrency notes.
+func EmptyTrash(ctx context.Context, dir string, progress func(TrashProgress)) error {
+	return emptyTrash(ctx, dir, progress)
 }
 
 // emptyTrash removes the contents of `dir` (typically ~/.Trash) without
 // removing the dir itself. Errors on individual entries are collected and
 // returned as a single joined error; per-item permission-denied is common
 // (e.g. items the OS itself has locked) and shouldn't fail the whole op.
-func emptyTrash(ctx context.Context, dir string) error {
+func emptyTrash(ctx context.Context, dir string, progress func(TrashProgress)) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", dir, err)
@@ -151,7 +178,9 @@ func emptyTrash(ctx context.Context, dir string) error {
 		wg   sync.WaitGroup
 		mu   sync.Mutex
 		errs []string
+		done int64
 	)
+	total := len(entries)
 	sem := make(chan struct{}, 8)
 	for _, e := range entries {
 		if ctx.Err() != nil {
@@ -166,10 +195,15 @@ func emptyTrash(ctx context.Context, dir string) error {
 			if ctx.Err() != nil {
 				return
 			}
-			if err := os.RemoveAll(p); err != nil {
+			rmErr := os.RemoveAll(p)
+			if rmErr != nil {
 				mu.Lock()
-				errs = append(errs, fmt.Sprintf("%s: %v", filepath.Base(p), err))
+				errs = append(errs, fmt.Sprintf("%s: %v", filepath.Base(p), rmErr))
 				mu.Unlock()
+			}
+			if progress != nil {
+				n := atomic.AddInt64(&done, 1)
+				progress(TrashProgress{Path: p, Done: int(n), Total: total, Err: rmErr})
 			}
 		}(full)
 	}
