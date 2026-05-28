@@ -77,12 +77,6 @@ _(none open — see Resolved section at bottom)_
 
 **Fix:** replace `os.Lstat(filepath.Join(root, e.Name()))` with `e.Info()`.
 
-### M14. `*m = *newModel(...)` mutation on rescan
-**File:** `internal/tui/model.go:237, 299`
-**Verification:** confirmed. Works because Update has a pointer receiver, but: (a) every new field added to `model` either has to zero-value sensibly on rescan or its meaning silently changes; (b) interacts badly with H1 (the previous scan's goroutine still references `m.progressCh` via the old closure).
-
-**Fix:** `func (m *model) reset()` that resets only the fields that should reset, leaving things like `cfg`, `hardDelete`, `width`, `height`, `collapsed` (debatable) alone.
-
 ### M15. Initial walk goroutine is unnecessary
 **Files:** `internal/scan/scan.go:225-230`, `internal/scan/size.go:57-62`
 **Verification:** confirmed. Both spawn a goroutine that the caller immediately waits for via `wg.Wait()`. Just call `walk(root)` directly on the caller's goroutine (still need `wg.Add(1)` since `walk` defers `wg.Done()`).
@@ -225,6 +219,11 @@ Resolved. `main.go` now exposes a `--version` flag that reads `runtime/debug.Rea
 
 ### H8. `tea.WithMouseCellMotion()` enabled with zero mouse handlers
 Resolved. Removed `tea.WithMouseCellMotion()` from `tea.NewProgram` at `internal/tui/model.go:23`. No `tea.MouseMsg` cases exist in Update, so the option was pure cost — terminal emulators (iTerm, Alacritty, etc.) intercept the mouse stream and require Option/Shift to copy text. Native click-drag-to-copy now works again. The option can come back the day a mouse handler is added.
+
+### M14. `*m = *newModel(...)` mutation on rescan
+Resolved. Replaced both `*m = *newModel(m.cfg, m.hardDelete)` call sites in `model.go` with `m.resetForRescan()`. The method explicitly classifies every field as either "ephemeral" (scan progress, browsing state, cleaning state, armed-toggle state, disk-usage snapshot — all zeroed/recreated) or "persists" (`cfg`, `hardDelete`, `width`, `height`, `collapsed`, `dashboardOn` — untouched). Future fields added to `model` now require a deliberate decision rather than getting silently zeroed.
+
+Supersedes `4d5328f`'s width/height save-and-restore: those manual carry-over lines at both call sites are gone, because `resetForRescan` simply doesn't touch the fields. As a bonus, the user's collapsed-group state and dashboard toggle now survive a rescan — previously both reset to defaults each time.
 
 ### M7. Orphan config knobs
 Resolved with a mixed approach: `IncludeSystemCache` wired up, `PatternsConfig.Extra.Names` deleted.

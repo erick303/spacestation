@@ -125,6 +125,59 @@ func newModel(cfg config.Config, hard bool) *model {
 	}
 }
 
+// resetForRescan returns m to the just-started-a-scan state without
+// touching user preferences. cfg, hardDelete, width/height, collapsed
+// group state, and dashboardOn all survive a rescan; everything else
+// (scan progress, browsing state, cleaning state, armed-toggle state)
+// is wiped.
+//
+// Use this instead of *m = *newModel(...) so future fields on model are
+// explicitly classified as "resets" or "persists" rather than zeroed by
+// accident.
+func (m *model) resetForRescan() {
+	sp := spinner.New()
+	sp.Spinner = spinner.Dot
+	sp.Style = lipgloss.NewStyle().Foreground(colorAccent)
+
+	m.stage = stageScanning
+	m.spinner = sp
+	m.scanStart = time.Now()
+	m.scanElapsed = 0
+	m.progressMsg = ""
+	m.progressFound = 0
+	m.progressBytes = 0
+	m.scanDone = false
+
+	m.progressCh = make(chan scan.Progress, 64)
+	m.scanCancel = nil
+	m.scanFinished = nil
+	m.cands = nil
+
+	m.rows = nil
+	m.cursor = 0
+	m.flash = ""
+	m.flashUntil = time.Time{}
+
+	m.cleanStart = time.Time{}
+	m.cleanElapsed = 0
+	m.cleanResults = nil
+	m.cleanedBytes = 0
+	m.cleanCancel = nil
+	m.cleanCancelled = false
+
+	m.pendingTrash = false
+	m.trashEmptyAll = false
+	m.trashProgressCh = nil
+	m.trashDone = 0
+	m.trashTotal = 0
+	m.trashLog = nil
+
+	m.armedGroupActive = false
+	m.armedExpiry = time.Time{}
+
+	m.diskUsage = scan.DiskUsage{}
+}
+
 func (m *model) Init() tea.Cmd {
 	return m.initWithPrev(nil, nil)
 }
@@ -371,13 +424,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// actually block, but we pass it through for symmetry.
 			prevCancel := m.scanCancel
 			prevFinished := m.scanFinished
-			// Carry the terminal size across the reset: Bubble Tea only
-			// emits WindowSizeMsg at startup / on resize, never on rescan,
-			// so a fresh model would render with height 0 and clamp the
-			// list to its 5-line minimum.
-			w, h := m.width, m.height
-			*m = *newModel(m.cfg, m.hardDelete)
-			m.width, m.height = w, h
+			m.resetForRescan()
 			return m, m.initWithPrev(prevCancel, prevFinished)
 		}
 		return m, nil
@@ -466,11 +513,7 @@ func (m *model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// invariant explicit.
 		prevCancel := m.scanCancel
 		prevFinished := m.scanFinished
-		// Carry the terminal size across the reset — no WindowSizeMsg
-		// arrives on rescan, so otherwise the list clamps to 5 lines.
-		w, h := m.width, m.height
-		*m = *newModel(m.cfg, m.hardDelete)
-		m.width, m.height = w, h
+		m.resetForRescan()
 		return m, m.initWithPrev(prevCancel, prevFinished)
 	case "v":
 		m.dashboardOn = !m.dashboardOn
