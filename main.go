@@ -9,6 +9,7 @@ import (
 	"runtime/debug"
 	"strings"
 
+	"github.com/erick303/spacestation/internal/cleanup"
 	"github.com/erick303/spacestation/internal/config"
 	"github.com/erick303/spacestation/internal/scan"
 	"github.com/erick303/spacestation/internal/tui"
@@ -58,7 +59,11 @@ func main() {
 		return
 	}
 
-	if err := tui.Run(cfg, *hardDelete); err != nil {
+	mode := cleanup.ModeTrash
+	if *hardDelete || cfg.Delete.Mode == "hard" {
+		mode = cleanup.ModeHard
+	}
+	if err := tui.Run(cfg, mode); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}

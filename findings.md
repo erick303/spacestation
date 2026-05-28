@@ -23,12 +23,6 @@ _(none open — see Resolved section at bottom)_
 
 ## MEDIUM — design / coherence
 
-### M8. TUI knows literal `"hard"` string
-**File:** `internal/tui/model.go:493, 762, 796`
-**Verification:** confirmed. The mode resolution happens three times via string compare. `cleanup.Mode` is already a typed int.
-
-**Fix:** resolve once in `main.go` and pass `cleanup.Mode` into `tui.Run`.
-
 ### M9. Mockup-vs-delivered: cleaning UI is one spinner
 **Files:** `internal/tui/model.go:778-783` (delivered); `docs/tui-mockup.html:146-163` (promised).
 **Verification:** confirmed. Mockup showed per-step progress bar, item counter, live command output, batch checkmarks. Delivered: a single spinner line "please wait — Finder is moving files to Trash." Combined with H7 (no cancel), a 5-minute Docker prune looks like the tool froze.
@@ -150,6 +144,9 @@ After steps 1–4 the tool is honest about what it does. After 5–8 the codebas
 ---
 
 ## Resolved
+
+### M8. TUI knows literal `"hard"` string
+Resolved. `main.go` resolves the effective delete mode once from `--hard` + `cfg.Delete.Mode` into a `cleanup.Mode` value and passes it into `tui.Run(cfg, mode)`. The model stores it as `deleteMode cleanup.Mode`; the three former `m.hardDelete || m.cfg.Delete.Mode == "hard"` sites (confirm-view verb, done-view verb, executeClean) now compare `m.deleteMode == cleanup.ModeHard`, and `executeClean`'s local `mode := cleanup.ModeTrash; if … { mode = cleanup.ModeHard }` block collapses to `mode := m.deleteMode`. The `"hard"` string literal no longer leaks past the config-loading boundary.
 
 ### C1. Silent Trash→Hard escalation in `cleanup.Execute`
 Resolved. `cleanup.Execute` no longer escalates Trash failures to `RemoveAll`. Per-path Move errors now flow through to the done view, which already iterates and prints them (`internal/tui/model.go:805-811`). Trash mode now matches the confirm-hint promise.

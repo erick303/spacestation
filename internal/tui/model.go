@@ -18,8 +18,8 @@ import (
 )
 
 // Public entrypoint.
-func Run(cfg config.Config, hardDelete bool) error {
-	m := newModel(cfg, hardDelete)
+func Run(cfg config.Config, mode cleanup.Mode) error {
+	m := newModel(cfg, mode)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
@@ -46,7 +46,7 @@ type row struct {
 
 type model struct {
 	cfg        config.Config
-	hardDelete bool
+	deleteMode cleanup.Mode
 
 	stage stage
 
@@ -110,13 +110,13 @@ type model struct {
 	diskUsage   scan.DiskUsage
 }
 
-func newModel(cfg config.Config, hard bool) *model {
+func newModel(cfg config.Config, mode cleanup.Mode) *model {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(colorAccent)
 	return &model{
 		cfg:         cfg,
-		hardDelete:  hard,
+		deleteMode:  mode,
 		stage:       stageScanning,
 		spinner:     sp,
 		scanStart:   time.Now(),
@@ -127,7 +127,7 @@ func newModel(cfg config.Config, hard bool) *model {
 }
 
 // resetForRescan returns m to the just-started-a-scan state without
-// touching user preferences. cfg, hardDelete, width/height, collapsed
+// touching user preferences. cfg, deleteMode, width/height, collapsed
 // group state, and dashboardOn all survive a rescan; everything else
 // (scan progress, browsing state, cleaning state, armed-toggle state)
 // is wiped.
@@ -749,15 +749,12 @@ func (m *model) executeClean() tea.Cmd {
 			bytes += c.SizeBytes
 		}
 	}
-	mode := cleanup.ModeTrash
-	if m.hardDelete || m.cfg.Delete.Mode == "hard" {
-		mode = cleanup.ModeHard
-	}
 	// Build the cancel context synchronously so the key handler can call
 	// m.cleanCancel() as soon as the cleaning stage starts.
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cleanCancel = cancel
 	cfg := m.cfg
+	mode := m.deleteMode
 	return func() tea.Msg {
 		defer cancel()
 		start := time.Now()
@@ -1135,7 +1132,7 @@ func (m *model) viewConfirm() string {
 	}
 	verb := "Move to Trash"
 	hint := "Items will go to ~/.Trash — you can restore from Finder."
-	if m.hardDelete || m.cfg.Delete.Mode == "hard" {
+	if m.deleteMode == cleanup.ModeHard {
 		verb = dangerStyle.Render("PERMANENTLY DELETE")
 		hint = "--hard mode: items will be removed immediately. No undo."
 	}
@@ -1252,7 +1249,7 @@ func (m *model) viewDone() string {
 		}
 	}
 	verb := "moved to Trash"
-	if m.hardDelete || m.cfg.Delete.Mode == "hard" {
+	if m.deleteMode == cleanup.ModeHard {
 		verb = "permanently deleted"
 	}
 	if m.pendingTrash {
