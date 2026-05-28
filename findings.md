@@ -43,14 +43,6 @@ _(none open — see Resolved section at bottom)_
 
 **Fix:** drop `smartClaimedPaths` and trust the dedupe pass. Or, conversely, drop the dedupe and structure probes as a single list of `{path, sizer, optionalSmartCmd}`.
 
-### M7. Orphan config knobs
-**File:** `internal/config/config.go:24, 41-43`
-**Verification:** confirmed by grep — neither `IncludeSystemCache` nor `PatternsConfig.Extra.Names` is read anywhere outside `Default()` / round-trip. Both are dead.
-
-**Fix:** delete them, or wire them up:
-- `IncludeSystemCache` should gate the `~/Library/Caches` / `~/.cache` fixed probes in `fixed.go:58-61`.
-- `Extra.Names` should be merged into `classifyDir` (probably with a fixed category like `CatOther` and a generic detail string).
-
 ### M8. TUI knows literal `"hard"` string
 **File:** `internal/tui/model.go:493, 762, 796`
 **Verification:** confirmed. The mode resolution happens three times via string compare. `cleanup.Mode` is already a typed int.
@@ -233,6 +225,12 @@ Resolved. `main.go` now exposes a `--version` flag that reads `runtime/debug.Rea
 
 ### H8. `tea.WithMouseCellMotion()` enabled with zero mouse handlers
 Resolved. Removed `tea.WithMouseCellMotion()` from `tea.NewProgram` at `internal/tui/model.go:23`. No `tea.MouseMsg` cases exist in Update, so the option was pure cost — terminal emulators (iTerm, Alacritty, etc.) intercept the mouse stream and require Option/Shift to copy text. Native click-drag-to-copy now works again. The option can come back the day a mouse handler is added.
+
+### M7. Orphan config knobs
+Resolved with a mixed approach: `IncludeSystemCache` wired up, `PatternsConfig.Extra.Names` deleted.
+
+- `IncludeSystemCache` now gates the three `CatSystemCache` fixed probes (`~/Library/Caches`, `~/.cache`, `~/Library/Logs`). The gate sits inside `probeFixedPaths`'s loop: any probe whose `cat == CatSystemCache` is skipped when the knob is false. Default stays `true`, so behavior is unchanged for users who don't touch their TOML; users who *do* set `include_system_caches = false` now see what the name implies.
+- `PatternsConfig` and `ExtraPatterns` are deleted. They were never read anywhere outside `Default()` round-trip, so no user could be relying on them. The `Patterns` field on `Config` goes with them. Re-add if a real ask for user-supplied classification names appears.
 
 ### M4. `Category.SortOrder()` duplicates iota declaration order
 Resolved. Replaced the 13-arm switch with a single `categorySortOrder` lookup table indexed by `Category`. `SortOrder()` is now a bounds-checked array read with a 99 fallback for out-of-range values. The table is the only place display rank lives, so adding a new category is one new const + one new line in the table — same number of edits as before, but the parallel-order drift risk is gone.

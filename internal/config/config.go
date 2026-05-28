@@ -13,7 +13,6 @@ type Config struct {
 	Scan      ScanConfig      `toml:"scan"`
 	Selection SelectionConfig `toml:"selection"`
 	Delete    DeleteConfig    `toml:"delete"`
-	Patterns  PatternsConfig  `toml:"patterns"`
 }
 
 type ScanConfig struct {
@@ -32,14 +31,6 @@ type SelectionConfig struct {
 
 type DeleteConfig struct {
 	Mode string `toml:"mode"` // "trash" | "hard"
-}
-
-type PatternsConfig struct {
-	Extra ExtraPatterns `toml:"extra"`
-}
-
-type ExtraPatterns struct {
-	Names []string `toml:"names"`
 }
 
 func Default() Config {
