@@ -98,11 +98,7 @@ func DirSize(ctx context.Context, root string, workers int) int64 {
 	}
 
 	wg.Add(1)
-	sem <- struct{}{}
-	go func() {
-		walk(root)
-		<-sem
-	}()
+	walk(root)
 	wg.Wait()
 	return atomic.LoadInt64(&total)
 }

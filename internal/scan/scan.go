@@ -230,10 +230,6 @@ func walkProjects(ctx context.Context, root string, workers int, emit func(Candi
 	}
 
 	wg.Add(1)
-	sem <- struct{}{}
-	go func() {
-		walk(root)
-		<-sem
-	}()
+	walk(root)
 	wg.Wait()
 }

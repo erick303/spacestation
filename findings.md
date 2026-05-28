@@ -45,10 +45,6 @@ _(none open — see Resolved section at bottom)_
 
 **Fix:** bounded child semaphore (`make(chan struct{}, workers)`).
 
-### M15. Initial walk goroutine is unnecessary
-**Files:** `internal/scan/scan.go:225-230`, `internal/scan/size.go:57-62`
-**Verification:** confirmed. Both spawn a goroutine that the caller immediately waits for via `wg.Wait()`. Just call `walk(root)` directly on the caller's goroutine (still need `wg.Add(1)` since `walk` defers `wg.Done()`).
-
 ---
 
 ## MEDIUM — defensive / latent
@@ -120,6 +116,9 @@ After steps 1–4 the tool is honest about what it does. After 5–8 the codebas
 ---
 
 ## Resolved
+
+### M15. Initial walk goroutine is unnecessary
+Resolved. In both `walkProjects` (scan.go) and `DirSize` (size.go) the initial walk was spawned in a goroutine that the caller immediately blocked on via `wg.Wait()` — a no-op detour through a goroutine plus a wasted semaphore slot. Both call sites now do `wg.Add(1); walk(root); wg.Wait()` directly. The recursive bodies still spawn goroutines and take sem slots normally; this only collapses the redundant entrypoint.
 
 ### M13. `recency.go` does an extra `Lstat` per entry
 Resolved. `LastTouched` now calls `e.Info()` on the `os.DirEntry` instead of doing a fresh `os.Lstat(filepath.Join(root, e.Name()))`. On Unix-like platforms `DirEntry.Info()` returns the stat the directory read already populated, saving one syscall per entry. `path/filepath` import dropped — no longer used.
