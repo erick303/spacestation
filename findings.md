@@ -23,12 +23,6 @@ _(none open — see Resolved section at bottom)_
 
 ## MEDIUM — design / coherence
 
-### M5. `Category` knowledge leaks into the TUI in three places
-**Files:** `internal/scan/types.go:55-84` (`SortOrder`), `internal/tui/styles.go:63-83` (`categoryColors`), `internal/scan/classify.go` + `fixed.go` + `smart.go` (emitters).
-**Verification:** confirmed. Adding a category requires touching: types.go (const), `String()`, `SortOrder()`, styles.go (color map), plus the emitter. Five files.
-
-**Fix:** make `Category` a string ID (`type Category string` with const values like `"node_modules"`). Centralize order/color in TUI keyed by ID. Or, at minimum, move `SortOrder` to the TUI — it's a presentation concern.
-
 ### M6. `smartClaimedPaths()` exists only to dodge dedupe
 **File:** `internal/scan/fixed.go:81, 105-133`
 **Verification:** confirmed. The dedupe pass in `scan.Run:115-143` already keys by path and prefers `ActionCommand`. So `smartClaimedPaths` is a pre-filter that has to be hand-kept in sync with every smart probe. If you add a smart probe and forget to update `smartClaimedPaths`, you get a duplicate that dedupe silently cleans up later — but the redundant `CachedDirSize` work already ran.
@@ -211,6 +205,16 @@ Resolved. `main.go` now exposes a `--version` flag that reads `runtime/debug.Rea
 
 ### H8. `tea.WithMouseCellMotion()` enabled with zero mouse handlers
 Resolved. Removed `tea.WithMouseCellMotion()` from `tea.NewProgram` at `internal/tui/model.go:23`. No `tea.MouseMsg` cases exist in Update, so the option was pure cost — terminal emulators (iTerm, Alacritty, etc.) intercept the mouse stream and require Option/Shift to copy text. Native click-drag-to-copy now works again. The option can come back the day a mouse handler is added.
+
+### M5. `Category` knowledge leaks into the TUI in three places
+Resolved (conservative variant). Adding a new category now requires touching three places: a new `iota` const, a new row in `scan.categoryMeta`, and a new row in `tui.categoryColors` — plus the emitter. Previously it was five (const + String case + SortOrder case + color map entry + emitter).
+
+What changed:
+
+- `scan/types.go` — `Category.String()` and `Category.SortOrder()` now both read from a single `categoryMeta` table holding `(name, sortOrder)` per Category. The two switch/lookup pairs that lived side-by-side after M4 are gone.
+- `tui/styles.go` — `categoryColors` is now an array indexed by `scan.Category` rather than a map, mirroring the shape of `categoryMeta` on the scan side. `categoryStyle` does a bounds-checked lookup with a muted-color fallback.
+
+What did *not* change: `Category` is still an `int` enum, not a string ID. The findings.md text proposed `type Category string` so that emitters could set `c.Category = "node_modules"` and the TUI could be the only owner of the color/order maps. I chose against it: with int enums, an emitter typo (`CatNodeModulez`) is a compile error; with string IDs (`"node_modulez"`) it's a silent miscategorisation that ships. The 5-files-vs-3-files win didn't justify trading away the compile-time safety. Re-open if a future plugin architecture (third-party emitters with their own category strings) needs it.
 
 ### M2. Fold `trash` into `cleanup`
 Resolved. `internal/trash/trash.go` moved into `internal/cleanup/trash.go` as the unexported `moveToTrash` and `hardDelete` functions. The `trash.Result` struct is gone — `Execute` only ever read `.Err` from it, so the helpers now return `[]error` directly. The single dispatch site in `Execute` is correspondingly simplified. `internal/trash/` directory deleted; `internal/cleanup/`'s existing tests still pass since they exercise the `RemoveFromTrash` / `EmptyTrash` / `removeTreeCounting` path, which was untouched.

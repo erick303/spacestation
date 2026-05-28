@@ -57,25 +57,28 @@ var (
 )
 
 // Per-category colors, used in the dashboard bar + breakdown line. Hand-picked
-// so adjacent segments contrast cleanly in the stacked bar.
-var categoryColors = map[scan.Category]lipgloss.Color{
-	scan.CatDocker:      lipgloss.Color("#7DCFFF"), // cyan
+// so adjacent segments contrast cleanly in the stacked bar. Indexed by
+// scan.Category to mirror the scan-side metadata table — adding a category
+// is one new row here in addition to the iota const + categoryMeta entry.
+// Empty string means "no specific color, fall back to muted".
+var categoryColors = [...]lipgloss.Color{
 	scan.CatNodeModules: lipgloss.Color("#9ECE6A"), // green
-	scan.CatSystemCache: lipgloss.Color("#E0AF68"), // gold/warn
 	scan.CatJSBuild:     lipgloss.Color("#F7768E"), // pink/danger
-	scan.CatGoCache:     lipgloss.Color("#BB9AF7"), // purple
 	scan.CatPython:      lipgloss.Color("#F2CC8F"), // warm yellow
-	scan.CatHomebrew:    lipgloss.Color("#C0CAF5"), // foreground
 	scan.CatRust:        lipgloss.Color("#FF9E64"), // orange
-	scan.CatXcode:       lipgloss.Color("#7AA2F7"), // blue/accent
 	scan.CatJVM:         lipgloss.Color("#73DACA"), // teal
+	scan.CatGoCache:     lipgloss.Color("#BB9AF7"), // purple
+	scan.CatXcode:       lipgloss.Color("#7AA2F7"), // blue/accent
+	scan.CatHomebrew:    lipgloss.Color("#C0CAF5"), // foreground
+	scan.CatDocker:      lipgloss.Color("#7DCFFF"), // cyan
+	scan.CatSystemCache: lipgloss.Color("#E0AF68"), // gold/warn
 	scan.CatDownloads:   lipgloss.Color("#A9B1D6"), // light gray
 	scan.CatTrash:       lipgloss.Color("#565F89"), // muted
 }
 
 func categoryStyle(c scan.Category) lipgloss.Style {
-	if col, ok := categoryColors[c]; ok {
-		return lipgloss.NewStyle().Foreground(col)
+	if int(c) < 0 || int(c) >= len(categoryColors) || categoryColors[c] == "" {
+		return lipgloss.NewStyle().Foreground(colorMuted)
 	}
-	return lipgloss.NewStyle().Foreground(colorMuted)
+	return lipgloss.NewStyle().Foreground(categoryColors[c])
 }

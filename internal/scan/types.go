@@ -23,66 +23,46 @@ const (
 	CatOther
 )
 
+// categoryMeta holds per-category metadata that the rest of the codebase
+// reads through Category.String() / Category.SortOrder(). Single source of
+// truth — adding a category is one new iota const + one new row here.
+// Out-of-range Categories degrade to "Other" / 99.
+var categoryMeta = [...]struct {
+	name      string // display name, also the value emitted in --json
+	sortOrder int    // lower = earlier in the UI
+}{
+	CatNodeModules: {"Node.js", 0},
+	CatJSBuild:     {"JS Build Output", 1},
+	CatPython:      {"Python", 2},
+	CatRust:        {"Rust", 3},
+	CatJVM:         {"JVM/Gradle", 4},
+	CatXcode:       {"Xcode", 5},
+	CatGoCache:     {"Go Cache", 6},
+	CatDocker:      {"Docker", 7},
+	CatHomebrew:    {"Homebrew", 8},
+	CatSystemCache: {"System Cache", 9},
+	CatDownloads:   {"Downloads", 10},
+	CatTrash:       {"Trash", 11},
+	CatOther:       {"Other", 99},
+}
+
 func (c Category) MarshalJSON() ([]byte, error) {
 	return json.Marshal(c.String())
 }
 
 func (c Category) String() string {
-	switch c {
-	case CatNodeModules:
-		return "Node.js"
-	case CatJSBuild:
-		return "JS Build Output"
-	case CatPython:
-		return "Python"
-	case CatRust:
-		return "Rust"
-	case CatJVM:
-		return "JVM/Gradle"
-	case CatGoCache:
-		return "Go Cache"
-	case CatXcode:
-		return "Xcode"
-	case CatHomebrew:
-		return "Homebrew"
-	case CatDocker:
-		return "Docker"
-	case CatSystemCache:
-		return "System Cache"
-	case CatDownloads:
-		return "Downloads"
-	case CatTrash:
-		return "Trash"
-	default:
+	if int(c) < 0 || int(c) >= len(categoryMeta) {
 		return "Other"
 	}
+	return categoryMeta[c].name
 }
 
-// categorySortOrder is the display rank for each category (lower = earlier).
-// Keyed by Category so adding a new category is a one-line change here; any
-// category not listed sorts last via SortOrder's fallback.
-var categorySortOrder = [...]int{
-	CatNodeModules: 0,
-	CatJSBuild:     1,
-	CatPython:      2,
-	CatRust:        3,
-	CatJVM:         4,
-	CatXcode:       5,
-	CatGoCache:     6,
-	CatDocker:      7,
-	CatHomebrew:    8,
-	CatSystemCache: 9,
-	CatDownloads:   10,
-	CatTrash:       11,
-	CatOther:       99,
-}
-
-// SortOrder is used to order groups in the UI (lower = earlier).
+// SortOrder is the display rank for grouping in the UI (lower = earlier).
 func (c Category) SortOrder() int {
-	if int(c) < 0 || int(c) >= len(categorySortOrder) {
+	if int(c) < 0 || int(c) >= len(categoryMeta) {
 		return 99
 	}
-	return categorySortOrder[c]
+	return categoryMeta[c].sortOrder
 }
 
 type Safety int
