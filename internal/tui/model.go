@@ -854,7 +854,7 @@ func (m *model) viewBrowsing() string {
 	}
 
 	// detail pane has 3 lines (action, detail, safety+reason)
-	detail := m.renderDetail(width)
+	detail := m.renderDetail()
 
 	dashboard := ""
 	dashboardLines := 0
@@ -873,10 +873,7 @@ func (m *model) viewBrowsing() string {
 	if flashLine != "" {
 		reserved += 1
 	}
-	viewportHeight := m.height - reserved
-	if viewportHeight < 5 {
-		viewportHeight = 5
-	}
+	viewportHeight := max(m.height-reserved, 5)
 	listView := m.renderList(width, viewportHeight)
 
 	parts := []string{header, ""}
@@ -911,10 +908,7 @@ func (m *model) renderList(width, height int) string {
 		} else {
 			start = m.cursor - height/2
 		}
-		end = start + height
-		if end > len(m.rows) {
-			end = len(m.rows)
-		}
+		end = min(start+height, len(m.rows))
 	}
 
 	// Render at most `height` output lines so the surrounding chrome (top
@@ -977,10 +971,7 @@ func (m *model) renderItemRow(width int, c scan.Candidate, isCursor bool) string
 	// the selection style.
 	dot := categoryStyle(c.Category).Render("●")
 
-	pathW := width - 38
-	if pathW < 20 {
-		pathW = 20
-	}
+	pathW := max(width-38, 20)
 	label := c.DisplayTitle()
 	if c.Action == scan.ActionDelete {
 		label = homeRelative(label)
@@ -1014,7 +1005,7 @@ func (m *model) renderItemRow(width int, c scan.Candidate, isCursor bool) string
 	return indent + dot + "  " + inner
 }
 
-func (m *model) renderDetail(width int) string {
+func (m *model) renderDetail() string {
 	if m.cursor < 0 || m.cursor >= len(m.rows) {
 		return ""
 	}
