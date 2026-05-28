@@ -27,6 +27,12 @@ func defaultFixedProbes() []fixedProbe {
 			detail: "Xcode build archives. Keep if you may need to symbolicate or re-submit."},
 		{path: "~/Library/Developer/CoreSimulator/Devices", cat: CatXcode, safety: SafetyRegenerable,
 			detail: "iOS Simulator device state. Recreated by Xcode/simulator on next launch.", expand: true},
+		{path: "~/Library/Developer/Xcode/iOS DeviceSupport", cat: CatXcode, safety: SafetyRegenerable,
+			detail: "Per-iOS-version debug symbols. Re-downloaded when you connect a device.", expand: true},
+		{path: "~/Library/Developer/Xcode/watchOS DeviceSupport", cat: CatXcode, safety: SafetyRegenerable,
+			detail: "Per-watchOS-version debug symbols. Re-downloaded when you connect a device.", expand: true},
+		{path: "~/Library/Developer/Xcode/tvOS DeviceSupport", cat: CatXcode, safety: SafetyRegenerable,
+			detail: "Per-tvOS-version debug symbols. Re-downloaded when you connect a device.", expand: true},
 
 		{path: "~/Library/Caches/go-build", cat: CatGoCache, safety: SafetyRegenerable,
 			detail: "Go build cache. Recreated by `go build` / `go test`."},
@@ -59,6 +65,8 @@ func defaultFixedProbes() []fixedProbe {
 			detail: "Per-app system caches under ~/Library/Caches. Apps recreate on demand.", expand: true},
 		{path: "~/.cache", cat: CatSystemCache, safety: SafetyRegenerable,
 			detail: "XDG-style user cache. Apps recreate on demand.", expand: true},
+		{path: "~/Library/Logs", cat: CatSystemCache, safety: SafetyRegenerable,
+			detail: "App and diagnostic logs. Apps recreate as needed.", expand: true},
 	}
 }
 
