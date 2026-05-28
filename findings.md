@@ -17,12 +17,6 @@ _(none open — see Resolved section at bottom)_
 
 ## HIGH — correctness bugs
 
-### H2. `q` during scanning doesn't cancel the scan goroutine
-**File:** `internal/tui/model.go:208-209, 132-143`
-**Verification:** confirmed, same root cause as H1. `stageScanning` handles `q`/`ctrl+c` by returning `tea.Quit`, which tears down the program — but the scan goroutine launched by the tea.Cmd is detached and runs to completion. On a large cold scan you can't actually quit.
-
-**Fix:** same as H1 — hoist the cancel onto the model and call it before `tea.Quit`.
-
 ### H3. Hardlink double-counting in `DirSize`
 **File:** `internal/scan/size.go:28-53`
 **Verification:** confirmed. `info.Size()` is reported per name, not per inode. Hardlink-heavy trees (Time Machine local snapshots, pnpm CAS store, some `.cargo` caches) inflate by the link-count factor. For a CAS-style store this can be 2–10×.
@@ -259,6 +253,9 @@ Resolved. `cleanup.Execute` no longer escalates Trash failures to `RemoveAll`. P
 
 ### H1. Rescan leaks the previous scan's goroutine
 Resolved. `DirSize`, `CachedDirSize`, and the four probe orchestrators (`probeFixedPaths`, `probeSmart`, `probeDownloads`, `probeTrash`) now take a `context.Context` so cancellation actually stops in-flight work. The model owns a `scanCancel` + `scanFinished` pair; rescan handlers capture them before resetting, and `beginScan` waits for the old scan to drain inside its Cmd goroutine before starting the new one. Both `scanProgressMsg` and `scanDoneMsg` carry the originating channel ref so stale messages from a cancelled scan can't pollute the new scan's UI. `TestDirSizeRespectsContext` guards against regression.
+
+### H2. `q` during scanning doesn't cancel the scan goroutine
+Resolved (same commit as H1). `stageScanning`'s quit handler now calls `m.scanCancel()` before `tea.Quit`. Walkers observe `ctx.Done()` at their next ReadDir tick (typically a few ms) and unwind, freeing FDs and letting the tail `SaveSizeCache` write complete before the process exits.
 
 ### M16. `SaveSizeCache` marshals the map without holding the lock
 Resolved (rolled into H1). `SaveSizeCache` now `RLock`s for the full duration of `json.Marshal` rather than releasing before the marshal. Multiple concurrent readers are still allowed; concurrent writers (CachedDirSize cache-misses) wait their turn. Eliminates the "concurrent map iter + write" panic that H1's improved rescan made reliably triggerable.
