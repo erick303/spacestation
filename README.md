@@ -84,13 +84,18 @@ Keys inside the TUI:
 | key            | action                                       |
 |----------------|----------------------------------------------|
 | ↑/↓, j/k       | move cursor                                  |
+| g / G          | jump to top / bottom (also home / end)       |
+| [ / ]          | jump to previous / next group header         |
+| pgup / pgdn    | page up / down                               |
 | space          | toggle current item (or whole group on a header) |
 | a / u          | select / unselect all items in current group |
 | A / c          | select all / clear all                       |
 | tab            | collapse / expand group at cursor            |
-| enter          | open confirmation, then clean                |
+| enter          | open confirmation, then clean (move to Trash) |
+| x              | permanent Trash action — remove checked Trash items, or empty the whole Trash if none checked |
+| v              | toggle the disk-usage dashboard              |
 | r              | rescan                                       |
-| q              | quit                                         |
+| q / ctrl+c     | quit                                         |
 
 ## What it knows about
 

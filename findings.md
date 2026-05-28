@@ -81,12 +81,6 @@ _(none open — see Resolved section at bottom)_
 
 **Fix:** at minimum a `?` overlay. Filter and reveal are larger items but would change the product feel.
 
-### L3. README key table missing several bindings
-**File:** `README.md:84-93`
-**Verification:** confirmed. Code has `[`, `]`, `{`, `}`, `g`, `G`, `v`, `pgup`, `pgdown`. README lists none of those.
-
-**Fix:** extend the table to cover the implemented bindings.
-
 ---
 
 ## HYGIENE — remaining gaps
@@ -132,6 +126,9 @@ After steps 1–4 the tool is honest about what it does. After 5–8 the codebas
 ---
 
 ## Resolved
+
+### L3. README key table missing several bindings
+Resolved. README's keys table now covers `g / G` (top/bottom, also `home`/`end`), `[ / ]` (jump to previous/next group header), `pgup`/`pgdn`, `x` (permanent Trash action — remove checked items, or empty whole Trash if none checked), and `v` (toggle dashboard). `q / ctrl+c` are grouped together since both quit.
 
 ### L5. README says "Requires Go 1.22+" but go.mod requires 1.25
 Resolved. README updated to "Requires Go 1.25+ (matches `go.mod` and CI)". Chose to align the README to reality rather than lower `go.mod` — the project has no portability mandate (CI is pinned to 1.25, single developer on 1.25), so widening the install audience to 1.22 users adds no real value and creates a maintenance question.
