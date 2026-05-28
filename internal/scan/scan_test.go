@@ -58,6 +58,7 @@ func TestWalkClassifiesAndPrunes(t *testing.T) {
 	cfg.Scan.IncludeFixedPaths = false
 	cfg.Scan.IncludeDownloads = false
 	cfg.Scan.IncludeTrash = false
+	cfg.Scan.IncludeScreenshots = false
 
 	cands := Run(context.Background(), Options{Cfg: cfg, Workers: 4}, nil)
 
@@ -115,6 +116,7 @@ func TestWalkSkipsDotGit(t *testing.T) {
 	cfg.Scan.IncludeFixedPaths = false
 	cfg.Scan.IncludeDownloads = false
 	cfg.Scan.IncludeTrash = false
+	cfg.Scan.IncludeScreenshots = false
 
 	cands := Run(context.Background(), Options{Cfg: cfg, Workers: 4}, nil)
 	for _, c := range cands {

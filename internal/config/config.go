@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -21,12 +22,14 @@ type ScanConfig struct {
 	IncludeDownloads   bool     `toml:"include_downloads"`
 	IncludeTrash       bool     `toml:"include_trash"`
 	IncludeSystemCache bool     `toml:"include_system_caches"`
+	IncludeScreenshots bool     `toml:"include_screenshots"`
 }
 
 type SelectionConfig struct {
 	DefaultSelectMinAgeDays int   `toml:"default_select_min_age_days"`
 	DownloadsMinAgeDays     int   `toml:"downloads_min_age_days"`
 	DownloadsMinSizeMB      int64 `toml:"downloads_min_size_mb"`
+	ScreenshotsMinAgeDays   int   `toml:"screenshots_min_age_days"`
 }
 
 type DeleteConfig struct {
@@ -41,11 +44,13 @@ func Default() Config {
 			IncludeDownloads:   true,
 			IncludeTrash:       true,
 			IncludeSystemCache: true,
+			IncludeScreenshots: true,
 		},
 		Selection: SelectionConfig{
 			DefaultSelectMinAgeDays: 30,
 			DownloadsMinAgeDays:     90,
 			DownloadsMinSizeMB:      100,
+			ScreenshotsMinAgeDays:   90,
 		},
 		Delete: DeleteConfig{Mode: "trash"},
 	}
@@ -115,4 +120,21 @@ func (c Config) ExpandedRoots() []string {
 		out = append(out, Expand(r))
 	}
 	return out
+}
+
+// ScreenshotDir returns the directory macOS saves screenshots to. It reads the
+// user's `com.apple.screencapture location` default and falls back to ~/Desktop
+// when that key is unset, malformed, or `defaults` is unavailable (e.g. on a
+// non-macOS host or in a sandbox). The returned path is always tilde-expanded.
+func ScreenshotDir() string {
+	fallback := Expand("~/Desktop")
+	out, err := exec.Command("defaults", "read", "com.apple.screencapture", "location").Output()
+	if err != nil {
+		return fallback
+	}
+	loc := strings.TrimSpace(string(out))
+	if loc == "" {
+		return fallback
+	}
+	return Expand(loc)
 }

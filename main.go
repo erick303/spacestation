@@ -33,6 +33,7 @@ func main() {
 		hardDelete  = flag.Bool("hard", false, "permanently delete instead of moving to Trash")
 		noDownloads = flag.Bool("no-downloads", false, "skip ~/Downloads")
 		noTrash     = flag.Bool("no-trash", false, "skip ~/.Trash")
+		noScreens   = flag.Bool("no-screenshots", false, "skip macOS screenshots (Desktop / configured location)")
 		showConfig  = flag.Bool("config", false, "print effective config path and exit")
 		showVersion = flag.Bool("version", false, "print version and exit")
 		scanRoot    rootFlag
@@ -63,6 +64,9 @@ func main() {
 	}
 	if *noTrash {
 		cfg.Scan.IncludeTrash = false
+	}
+	if *noScreens {
+		cfg.Scan.IncludeScreenshots = false
 	}
 
 	if *jsonOut {

@@ -14,6 +14,7 @@ func TestApplyScoring(t *testing.T) {
 	cfg := config.Default()
 	cfg.Selection.DefaultSelectMinAgeDays = 30
 	cfg.Selection.DownloadsMinAgeDays = 90
+	cfg.Selection.ScreenshotsMinAgeDays = 90
 
 	cases := []struct {
 		name           string
@@ -91,6 +92,26 @@ func TestApplyScoring(t *testing.T) {
 			},
 			wantSelected:  false,
 			wantReasonHas: "Recent",
+		},
+		{
+			name: "old screenshot (120d): auto-selects",
+			in: Candidate{
+				Category:    CatScreenshots,
+				Safety:      SafetyUserContent,
+				LastTouched: now.Add(-120 * 24 * time.Hour),
+			},
+			wantSelected:  true,
+			wantReasonHas: "Screenshot, untouched for 120d",
+		},
+		{
+			name: "recent screenshot (10d): not auto-selected",
+			in: Candidate{
+				Category:    CatScreenshots,
+				Safety:      SafetyUserContent,
+				LastTouched: now.Add(-10 * 24 * time.Hour),
+			},
+			wantSelected:  false,
+			wantReasonHas: "Recent screenshot",
 		},
 		{
 			name: "Trash always selects",

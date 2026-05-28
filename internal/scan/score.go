@@ -15,6 +15,7 @@ func applyScoring(cs []Candidate, cfg config.Config) {
 	now := time.Now()
 	minAge := time.Duration(cfg.Selection.DefaultSelectMinAgeDays) * 24 * time.Hour
 	dlMinAge := time.Duration(cfg.Selection.DownloadsMinAgeDays) * 24 * time.Hour
+	ssMinAge := time.Duration(cfg.Selection.ScreenshotsMinAgeDays) * 24 * time.Hour
 
 	for i := range cs {
 		c := &cs[i]
@@ -45,6 +46,13 @@ func applyScoring(cs []Candidate, cfg config.Config) {
 				c.Reason = fmt.Sprintf("Untouched for %dd in Downloads", ageDays)
 			} else {
 				c.Reason = fmt.Sprintf("Recent (%dd) — review manually", ageDays)
+			}
+		case c.Category == CatScreenshots:
+			if age > ssMinAge {
+				c.Selected = true
+				c.Reason = fmt.Sprintf("Screenshot, untouched for %dd", ageDays)
+			} else {
+				c.Reason = fmt.Sprintf("Recent screenshot (%dd) — review manually", ageDays)
 			}
 		case c.Safety == SafetyRegenerable:
 			if age > minAge {

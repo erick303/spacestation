@@ -104,6 +104,15 @@ func Run(ctx context.Context, opts Options, progress chan<- Progress) []Candidat
 		}()
 	}
 
+	if opts.Cfg.Scan.IncludeScreenshots {
+		topWG.Add(1)
+		go func() {
+			defer topWG.Done()
+			sendProgress(Progress{Stage: "walking", Message: "Screenshots"})
+			probeScreenshots(ctx, opts.Cfg, addCandidate)
+		}()
+	}
+
 	if opts.Cfg.Scan.IncludeTrash {
 		topWG.Add(1)
 		go func() {

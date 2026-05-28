@@ -19,6 +19,7 @@ const (
 	CatDocker
 	CatSystemCache
 	CatDownloads
+	CatScreenshots
 	CatTrash
 	CatOther
 )
@@ -42,7 +43,8 @@ var categoryMeta = [...]struct {
 	CatHomebrew:    {"Homebrew", 8},
 	CatSystemCache: {"System Cache", 9},
 	CatDownloads:   {"Downloads", 10},
-	CatTrash:       {"Trash", 11},
+	CatScreenshots: {"Screenshots", 11},
+	CatTrash:       {"Trash", 12},
 	CatOther:       {"Other", 99},
 }
 

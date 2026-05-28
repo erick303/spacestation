@@ -270,6 +270,59 @@ func probeDownloads(ctx context.Context, cfg config.Config, workers int, emit fu
 	wg.Wait()
 }
 
+// screenshotExts are the image extensions macOS `screencapture` can write.
+// The default is .png; the format is user-configurable to the others.
+var screenshotExts = map[string]bool{
+	".png": true, ".jpg": true, ".jpeg": true, ".heic": true, ".tiff": true, ".pdf": true,
+}
+
+// isScreenshotName reports whether name looks like a macOS screenshot using the
+// default naming scheme ("Screenshot 2026-01-12 at 09.43.30.png", including the
+// " (2)" duplicate suffix). Matching is by prefix + extension only — renamed
+// screenshots are intentionally left alone, since the name is our sole signal.
+func isScreenshotName(name string) bool {
+	if !strings.HasPrefix(name, "Screenshot ") {
+		return false
+	}
+	return screenshotExts[strings.ToLower(filepath.Ext(name))]
+}
+
+// probeScreenshots emits one candidate per macOS screenshot sitting in the
+// configured screenshot directory (default ~/Desktop). Screenshots are user
+// content, not regenerable — they move to Trash rather than being hard-deleted
+// unless --hard is set, and scoring only auto-selects ones past the age gate.
+func probeScreenshots(ctx context.Context, _ config.Config, emit func(Candidate)) {
+	root := config.ScreenshotDir()
+	info, err := os.Stat(root)
+	if err != nil || !info.IsDir() {
+		return
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if ctx.Err() != nil {
+			break
+		}
+		if e.IsDir() || !isScreenshotName(e.Name()) {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		emit(Candidate{
+			Path:        filepath.Join(root, e.Name()),
+			Category:    CatScreenshots,
+			SizeBytes:   info.Size(),
+			LastTouched: info.ModTime(),
+			Safety:      SafetyUserContent,
+			Detail:      "Screenshot saved by macOS. User content — moves to Trash (or permanently deleted with --hard).",
+		})
+	}
+}
+
 func probeTrash(ctx context.Context, workers int, emit func(Candidate)) {
 	root := config.Expand("~/.Trash")
 	info, err := os.Stat(root)

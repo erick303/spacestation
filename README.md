@@ -135,6 +135,11 @@ Plus fixed-path probes for: `~/Library/Developer/Xcode/{DerivedData,Archives}`,
 `~/Library/Group Containers/group.com.docker`, `~/Library/Caches/*` per-app,
 `~/.cache/*`, `~/.cargo/{registry,git}`, `~/Downloads` (>90d, >100MB), `~/.Trash`.
 
+Plus macOS **screenshots** (`Screenshot *.png` and other `screencapture` formats)
+in the configured screenshot location — read from
+`com.apple.screencapture location`, defaulting to `~/Desktop`. Screenshots are
+user content (not regenerable); they move to Trash unless `--hard` is set.
+
 `.git`, `.hg`, `.svn`, `.idea`, `.vscode` are never descended into.
 
 ## Default-selection rules
@@ -145,6 +150,7 @@ without picking individually:
 - Anything `regenerable` and untouched for ≥ 30 days
 - `~/.Trash` always
 - `~/Downloads` items untouched for ≥ 90 days
+- Screenshots untouched for ≥ 90 days
 - Everything else: not selected (you decide)
 
 ## Config
@@ -158,18 +164,20 @@ include_fixed_paths = true
 include_downloads = true
 include_trash = true
 include_system_caches = true
+include_screenshots = true
 
 [selection]
 default_select_min_age_days = 30
 downloads_min_age_days = 90
 downloads_min_size_mb = 100
+screenshots_min_age_days = 90
 
 [delete]
 mode = "trash"           # "trash" or "hard"
 ```
 
 CLI flags override config: `--scan-root <path>` (repeatable),
-`--no-downloads`, `--no-trash`, `--hard`.
+`--no-downloads`, `--no-trash`, `--no-screenshots`, `--hard`.
 
 > **`--scan-root` only finds project artifact dirs.** A scan root is walked the
 > same way as `project_roots`: it reports *only* the regenerable artifact
