@@ -5,6 +5,9 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 )
 
 // homeRelative shortens absolute paths under $HOME to start with "~/".
@@ -70,9 +73,55 @@ func humanAge(t time.Time) string {
 	}
 }
 
+// truncatePath shortens p so that its terminal display width is at most max
+// columns, prepending "…" when truncation happened. Operates on rune width
+// (so emoji and CJK get charged 2 cells), not bytes — multibyte input is
+// never cut mid-rune.
+//
+// The caller passes display columns, not bytes. Keeping the original
+// "tail wins" semantics: the trailing portion of the path is what survives
+// truncation, since the suffix (project name, file name) is typically what
+// the user wants to read.
 func truncatePath(p string, max int) string {
-	if len(p) <= max {
+	if max <= 0 {
+		return ""
+	}
+	if runewidth.StringWidth(p) <= max {
 		return p
 	}
-	return "…" + p[len(p)-max+1:]
+	// Walk runes from the right, accumulating width until we've used max-1
+	// cells (leaving room for the leading ellipsis).
+	budget := max - 1
+	rs := []rune(p)
+	cut := len(rs)
+	used := 0
+	for i := len(rs) - 1; i >= 0; i-- {
+		w := runewidth.RuneWidth(rs[i])
+		if used+w > budget {
+			break
+		}
+		used += w
+		cut = i
+	}
+	return "…" + string(rs[cut:])
+}
+
+// padRight returns s padded on the right with spaces so its terminal display
+// width is n. ANSI escape sequences in s are ignored for measurement.
+func padRight(s string, n int) string {
+	w := lipgloss.Width(s)
+	if w >= n {
+		return s
+	}
+	return s + strings.Repeat(" ", n-w)
+}
+
+// padLeft returns s padded on the left with spaces so its terminal display
+// width is n. ANSI escape sequences in s are ignored for measurement.
+func padLeft(s string, n int) string {
+	w := lipgloss.Width(s)
+	if w >= n {
+		return s
+	}
+	return strings.Repeat(" ", n-w) + s
 }

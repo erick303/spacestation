@@ -23,16 +23,6 @@ _(none open — see Resolved section at bottom)_
 
 **Fix:** maintain `map[uint64]struct{}` of seen `(dev, ino)` inside the walk, gated by a small mutex (or per-walk so no sharing needed). Skip files whose inode was already counted.
 
-### H4. Pad/truncate use `len()` (bytes), not display width
-**Files:**
-- `internal/tui/format.go:73-78` (`truncatePath`)
-- `internal/tui/model.go:817-828` (`padRight`, `padLeft`)
-- `internal/tui/dashboard.go:170, 182-208` (`sepW` hardcoded to 3 to dodge this)
-
-**Verification:** confirmed. `truncatePath` slices on byte indices and will cut mid-rune on any path with non-ASCII (CJK, emoji, accented chars). `padRight`/`padLeft` count bytes for column width, so a path with one multi-byte char produces a column off by N bytes worth of padding. Compounding factor: `renderItemRow` styles strings with lipgloss (ANSI escapes) and then calls `padRight` (`model.go:704`) — `len()` over an ANSI-styled string includes the escape bytes, breaking alignment further. The dashboard's `sepW = 3` is the smoking gun: someone hand-tuned around `len()` already.
-
-**Fix:** use `lipgloss.Width()` for padding decisions and `runewidth` (already transitively pulled in) or `[]rune` slicing for truncation. Or extract a single `displayPad(s, n int)` helper and route everything through it.
-
 ### H5. Size-cache key ignores inode/device
 **File:** `internal/scan/sizecache.go:104-107`
 **Verification:** confirmed. Cache key is the path string only. Renaming a directory or remounting a different volume at the same path will hit-with-wrong-data if mtimes happen to match (cross-volume mtime equality is unlikely but not impossible; rename within a volume preserves mtime exactly).
@@ -247,6 +237,16 @@ Resolved (same commit as H1). `stageScanning`'s quit handler now calls `m.scanCa
 
 ### H7. `stageCleaning` swallows `ctrl+c`
 Resolved. `cleanup.Execute(ctx, …)`, `runCommand(parent, …)`, `trash.Move(ctx, …)`, `trash.Hard(ctx, …)`, and `emptyTrash(ctx, …)` all take a context now. The TUI's `executeClean` creates the context synchronously, stores `cleanCancel` on the model, and passes it into the Cmd goroutine. `stageCleaning` handles `esc`/`ctrl+c` (cancel and fall through to done view with partial results) and `q` (cancel and quit). `runCommand`'s timeout is derived from the parent ctx, so a cancel kills the in-flight subprocess via `exec.CommandContext`. The view hint advertises `esc cancel · q quit`, and flips to a "cancelling…" warning once the cancel has been issued. Test coverage for cleanup is deferred to Hy4.
+
+### H4. Pad/truncate use `len()` (bytes), not display width
+Resolved. `truncatePath`, `padRight`, and `padLeft` now all live in `internal/tui/format.go` and operate on display width:
+
+- `truncatePath` uses `runewidth` to walk runes from the right within a width budget, never producing invalid UTF-8 or mid-rune cuts.
+- `padRight` / `padLeft` measure with `lipgloss.Width(s)`, so ANSI escape sequences in styled inputs don't throw the pad count off.
+- `renderItemRow`'s byte-slice hack for smart-probe coloring is gone: we now style the visible text first and pad after.
+- `dashboard.go`'s hardcoded `const sepW = 3` is replaced with `sepW := lipgloss.Width(sep)`, and category-entry widths use `lipgloss.Width(txt)` instead of `len(txt)`.
+
+`internal/tui/format_test.go` covers ASCII truncation, multibyte runes (no mid-byte cut), wide runes (CJK respects 2-cell width), ANSI-styled `padRight`, and multibyte `padLeft`. Promoted `github.com/mattn/go-runewidth` from indirect to direct in go.mod.
 
 ### H6. `score.Apply` mis-handles zero/future mtime
 Resolved. Two guards added at the top of the `score.Apply` loop:

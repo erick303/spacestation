@@ -167,8 +167,8 @@ func renderBreakdown(termWidth int, cands []scan.Candidate) string {
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].bytes > entries[j].bytes })
 
-	const sepW = 3 // visible " · "
 	sep := mutedStyle.Render(" · ")
+	sepW := lipgloss.Width(sep) // ANSI-aware; will be 3 for " · ".
 
 	maxLineW := termWidth
 	if maxLineW < labelWidth+10 {
@@ -184,7 +184,7 @@ func renderBreakdown(termWidth int, cands []scan.Candidate) string {
 
 	for _, e := range entries {
 		txt := fmt.Sprintf("%s %s", e.cat.String(), humanBytes(e.bytes))
-		txtW := len(txt)
+		txtW := lipgloss.Width(txt) // category names are ASCII today; future-proof anyway.
 		need := txtW
 		if !firstOnLine {
 			need += sepW

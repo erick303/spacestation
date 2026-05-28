@@ -793,17 +793,15 @@ func (m *model) renderItemRow(width int, c scan.Candidate, isCursor bool) string
 	if c.Action == scan.ActionCommand {
 		tag = "⚡ "
 	}
-	path := truncatePath(tag+label, pathW)
-	paddedPath := padRight(path, pathW)
+	// Style the visible title first (smart-probe rows get warn colour), then
+	// pad to display width with plain spaces. padRight measures via
+	// lipgloss.Width so the ANSI escapes in the styled prefix don't throw
+	// the alignment off.
+	visible := truncatePath(tag+label, pathW)
 	if c.Action == scan.ActionCommand {
-		// Style only the visible title; trailing spaces stay unstyled so they
-		// don't get bold-yellow under the size/age columns.
-		if len(paddedPath) > len(path) {
-			paddedPath = smartTitleStyle.Render(path) + paddedPath[len(path):]
-		} else {
-			paddedPath = smartTitleStyle.Render(paddedPath)
-		}
+		visible = smartTitleStyle.Render(visible)
 	}
+	paddedPath := padRight(visible, pathW)
 	inner := fmt.Sprintf("%s %s  %s   %s",
 		cb,
 		paddedPath,
@@ -914,19 +912,7 @@ func (m *model) viewDone() string {
 	return "\n" + title + "  ✓ done\n\n" + summary + "\n\n" + helpStyle.Render("r rescan   q quit")
 }
 
-// helpers
-func padRight(s string, n int) string {
-	if len(s) >= n {
-		return s
-	}
-	return s + strings.Repeat(" ", n-len(s))
-}
-func padLeft(s string, n int) string {
-	if len(s) >= n {
-		return s
-	}
-	return strings.Repeat(" ", n-len(s)) + s
-}
+// helpers (padRight, padLeft live in format.go alongside truncatePath)
 func min(a, b int) int {
 	if a < b {
 		return a
