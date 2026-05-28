@@ -61,22 +61,10 @@ func Execute(cands []scan.Candidate, mode Mode) []Result {
 		if mode == ModeHard {
 			delResults = trash.Hard(deletePaths, 8)
 		} else {
+			// Trash mode is honest: per-path failures stay failures.
+			// The confirm hint promises Trash, so we never escalate to
+			// RemoveAll. If the user wants that, they re-run with --hard.
 			delResults = trash.Move(deletePaths)
-			// Fall back to Hard for any individual failures.
-			var failed []string
-			var failedIdx []int
-			for k, r := range delResults {
-				if r.Err != nil {
-					failed = append(failed, r.Path)
-					failedIdx = append(failedIdx, k)
-				}
-			}
-			if len(failed) > 0 {
-				hardResults := trash.Hard(failed, 8)
-				for j, hr := range hardResults {
-					delResults[failedIdx[j]] = hr
-				}
-			}
 		}
 		for j, r := range delResults {
 			i := deleteIdx[j]
