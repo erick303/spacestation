@@ -87,12 +87,6 @@ _(none open — see Resolved section at bottom)_
 
 **Fix:** extend the table to cover the implemented bindings.
 
-### L4. README references missing demo assets
-**File:** `README.md:9, 11`
-**Verification:** confirmed. `docs/hero.png` and `docs/demo.gif` don't exist (only `docs/demo.tape` and `docs/tui-mockup.html` do). Renders as broken-image links on GitHub.
-
-**Fix:** generate via `vhs docs/demo.tape` and commit, or remove the references until they're regenerated.
-
 ### L5. README says "Requires Go 1.22+" but go.mod requires 1.25
 **File:** `README.md:63` vs `go.mod:3`
 **Verification:** confirmed contradiction. `go 1.25.0` is a minimum (since Go 1.21), so users on 1.22 will fail to build. CI is also pinned to 1.25 (`.github/workflows/ci.yml:18`). README is the outlier.
@@ -144,6 +138,9 @@ After steps 1–4 the tool is honest about what it does. After 5–8 the codebas
 ---
 
 ## Resolved
+
+### L4. README references missing demo assets
+Resolved (verified, no code change). `docs/hero.png` (461 KB), `docs/demo.gif` (498 KB), and `docs/demo.tape` are all present in the repo, so the README image links at lines 9 and 11 render correctly on GitHub. Finding was already addressed by prior demo work — listed here only to keep the audit trail complete.
 
 ### M8. TUI knows literal `"hard"` string
 Resolved. `main.go` resolves the effective delete mode once from `--hard` + `cfg.Delete.Mode` into a `cleanup.Mode` value and passes it into `tui.Run(cfg, mode)`. The model stores it as `deleteMode cleanup.Mode`; the three former `m.hardDelete || m.cfg.Delete.Mode == "hard"` sites (confirm-view verb, done-view verb, executeClean) now compare `m.deleteMode == cleanup.ModeHard`, and `executeClean`'s local `mode := cleanup.ModeTrash; if … { mode = cleanup.ModeHard }` block collapses to `mode := m.deleteMode`. The `"hard"` string literal no longer leaks past the config-loading boundary.
