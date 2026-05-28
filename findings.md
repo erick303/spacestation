@@ -21,36 +21,6 @@ _(none open — see Resolved section at bottom)_
 
 ---
 
-## MEDIUM — design / coherence
-
-### M9. Mockup-vs-delivered: cleaning UI is one spinner
-**Files:** `internal/tui/model.go:778-783` (delivered); `docs/tui-mockup.html:146-163` (promised).
-**Verification:** confirmed. Mockup showed per-step progress bar, item counter, live command output, batch checkmarks. Delivered: a single spinner line "please wait — Finder is moving files to Trash." Combined with H7 (no cancel), a 5-minute Docker prune looks like the tool froze.
-
-**Fix:** non-trivial — needs `cleanup.Execute` to stream results via a channel and the TUI to subscribe. Worth the effort if cleanups will routinely take minutes.
-
----
-
-## MEDIUM — code quality / dead code
-
-### M11. `probeBrewSmart` reuses `parseDockerSize` by concatenating regex groups
-**File:** `internal/scan/smart.go:135-142` vs `:66-90`
-**Verification:** confirmed. Brew's regex splits `(num)(unit)`; the code then concatenates `m[1]+m[2]` and feeds back to `parseDockerSize` which immediately re-splits with the same pattern. Plus `sizeRe` (line 136) is recompiled inside the loop body each call.
-
-**Fix:** extract `humanSize(num float64, unit string) int64`; promote `sizeRe` to a package-level var; rename `parseDockerSize` to `parseHumanSize` or have it take pre-split arguments.
-
----
-
-## MEDIUM — defensive / latent
-
-### M17. AppleScript path escaping uses `%q`, not AppleScript escaping
-**File:** `internal/trash/trash.go:33`
-**Verification:** partially confirmed; severity downgraded. Go's `%q` and AppleScript string syntax happen to agree on the common escapes (`\"`, `\\`, `\n`, `\r`, `\t`) and on printable Unicode. Where they differ: Go's `%q` emits `\xNN` for non-printable bytes; AppleScript doesn't support `\x`. macOS filenames can't contain NULL but can contain other control chars (rare but possible). The realistic failure mode is the batched osascript returning an error → previously this triggered the silent Hard-delete fallback (see C1).
-
-**Fix:** sanitize explicitly (replace `\` then `"`), or invoke osascript with the paths as arguments via `osascript -e 'on run argv …' arg1 arg2 …`. Lower priority than C1; once C1 is fixed this becomes a "weird filename fails to trash and surfaces an error" situation, which is fine.
-
----
-
 ## LOW — UX & polish
 
 ### L2. No `?` help / no `/` filter / no `o` open-in-Finder
@@ -98,6 +68,15 @@ After steps 1–4 the tool is honest about what it does. After 5–8 the codebas
 ---
 
 ## Resolved
+
+### M9. Mockup-vs-delivered: cleaning UI is one spinner
+Deferred to post-v0.1.0 as a known limitation, not closed via code. The mockup's per-step progress bar / live command output / per-batch checkmarks is a real product feature, not a finding-sized fix — `cleanup.Execute` would need to stream results via a channel and the TUI would need to subscribe. The current single-spinner UI is honest about what it does and the cancel path (H7) gives the user a way out if a `docker system prune` runs long. Recording the gap rather than closing as Won't Fix because it remains worth doing later.
+
+### M11. `probeBrewSmart` regex recompile + redundant split-concat-split
+Won't fix. The "fix" is to lift `sizeRe` to package scope and rename `parseDockerSize` so it takes pre-split `(num, unit)` arguments. Real cost is one `regexp.Compile` per `brew cleanup --dry-run` call (which itself takes seconds), and a string concat that's immediately re-split — measurably zero. Closing as a reasoned waiver to avoid touching working parser code for negligible benefit; the ugliness is local and not on any hot path.
+
+### M17. AppleScript path escaping uses `%q`, not AppleScript escaping
+Won't fix. Post-C1, the failure mode for an unrepresentable filename is the right one: `osascript` errors, the per-path error surfaces in the done view, the file stays where it was. Go's `%q` and AppleScript string syntax agree on every common escape and every printable Unicode rune; they differ only on `\xNN` (non-printable bytes), which macOS filenames can technically contain but in practice don't. Switching to argv-passing `osascript -e 'on run argv …' arg1 arg2 …` would be defensive hardening for a case with no observable user impact.
 
 ### Hy2. No `//go:build darwin` constraints; macOS-only code compiles on Linux
 Resolved with a runtime guard rather than build constraints. Verified by cross-compile: the code is source-portable (no actually-Darwin-only syscalls — `Stat_t`/`Statfs_t` field accesses go through portable casts), so build tags wouldn't catch anything at compile time. Added an early `runtime.GOOS != "darwin"` check at the top of `main()` that prints `"spacestation is macOS-only (built for darwin, running on <goos>)"` to stderr and exits 1. Captures the real concern (a user on another platform getting a useless silent binary) without the file-shuffle dance of dual `main_darwin.go` / `main_other.go` stubs that would add no signal.
