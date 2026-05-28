@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/erick303/spacestation/internal/scan"
-	"github.com/erick303/spacestation/internal/trash"
 )
 
 type Result struct {
@@ -66,18 +65,17 @@ func Execute(ctx context.Context, cands []scan.Candidate, mode Mode) []Result {
 	}
 
 	if len(deletePaths) > 0 && ctx.Err() == nil {
-		var delResults []trash.Result
+		var delErrs []error
 		if mode == ModeHard {
-			delResults = trash.Hard(ctx, deletePaths, 8)
+			delErrs = hardDelete(ctx, deletePaths, 8)
 		} else {
 			// Trash mode is honest: per-path failures stay failures.
 			// The confirm hint promises Trash, so we never escalate to
 			// RemoveAll. If the user wants that, they re-run with --hard.
-			delResults = trash.Move(ctx, deletePaths)
+			delErrs = moveToTrash(ctx, deletePaths)
 		}
-		for j, r := range delResults {
-			i := deleteIdx[j]
-			results[i].Err = r.Err
+		for j, err := range delErrs {
+			results[deleteIdx[j]].Err = err
 		}
 	}
 
