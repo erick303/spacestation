@@ -87,12 +87,6 @@ _(none open — see Resolved section at bottom)_
 
 **Fix:** extend the table to cover the implemented bindings.
 
-### L5. README says "Requires Go 1.22+" but go.mod requires 1.25
-**File:** `README.md:63` vs `go.mod:3`
-**Verification:** confirmed contradiction. `go 1.25.0` is a minimum (since Go 1.21), so users on 1.22 will fail to build. CI is also pinned to 1.25 (`.github/workflows/ci.yml:18`). README is the outlier.
-
-**Fix:** either lower go.mod's directive (no language features above 1.22 are used in the source, on inspection) and align CI — best for portability — or update the README to say "Requires Go 1.25+".
-
 ---
 
 ## HYGIENE — remaining gaps
@@ -138,6 +132,9 @@ After steps 1–4 the tool is honest about what it does. After 5–8 the codebas
 ---
 
 ## Resolved
+
+### L5. README says "Requires Go 1.22+" but go.mod requires 1.25
+Resolved. README updated to "Requires Go 1.25+ (matches `go.mod` and CI)". Chose to align the README to reality rather than lower `go.mod` — the project has no portability mandate (CI is pinned to 1.25, single developer on 1.25), so widening the install audience to 1.22 users adds no real value and creates a maintenance question.
 
 ### L4. README references missing demo assets
 Resolved (verified, no code change). `docs/hero.png` (461 KB), `docs/demo.gif` (498 KB), and `docs/demo.tape` are all present in the repo, so the README image links at lines 9 and 11 render correctly on GitHub. Finding was already addressed by prior demo work — listed here only to keep the audit trail complete.

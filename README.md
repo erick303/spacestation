@@ -60,7 +60,7 @@ spacestation does two things well:
 
 ## Install
 
-Requires Go 1.22+.
+Requires Go 1.25+ (matches `go.mod` and CI).
 
 ```sh
 git clone https://github.com/erick303/spacestation
