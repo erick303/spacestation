@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/erick303/spacestation/internal/config"
@@ -30,6 +31,8 @@ type sizeCache struct {
 
 type sizeCacheEntry struct {
 	Mtime time.Time `json:"mtime"`
+	Dev   uint64    `json:"dev,omitempty"` // identifies the filesystem
+	Ino   uint64    `json:"ino,omitempty"` // identifies the inode within that filesystem
 	Size  int64     `json:"size"`
 	At    time.Time `json:"at"` // when this entry was computed
 }
@@ -93,8 +96,9 @@ func SaveSizeCache() error {
 }
 
 // CachedDirSize returns the size of `root`, using a persistent cache keyed
-// by (path, dir mtime). If the cache is stale or empty, DirSize is called
-// and the result stored.
+// by (path, dir mtime, dev, ino). If the cache is stale, the inode at the
+// path has changed (rename collision, volume swap), or the entry is empty,
+// DirSize is called and the result stored.
 func CachedDirSize(ctx context.Context, root string, workers int) int64 {
 	if ctx.Err() != nil {
 		return 0
@@ -104,12 +108,17 @@ func CachedDirSize(ctx context.Context, root string, workers int) int64 {
 		return 0
 	}
 	mtime := info.ModTime()
+	dev, ino := statIdent(info)
 
 	c := loadGlobalCache()
 	c.mu.RLock()
 	e, ok := c.entries[root]
 	c.mu.RUnlock()
-	if ok && e.Mtime.Equal(mtime) {
+	// The (dev, ino) guard catches the case where the path now resolves to
+	// a different inode than when we cached it (directory was deleted and
+	// recreated with the same name, or the underlying volume was swapped),
+	// even when mtime happens to match.
+	if ok && e.Mtime.Equal(mtime) && e.Dev == dev && e.Ino == ino {
 		return e.Size
 	}
 
@@ -119,10 +128,21 @@ func CachedDirSize(ctx context.Context, root string, workers int) int64 {
 		return 0
 	}
 	c.mu.Lock()
-	c.entries[root] = sizeCacheEntry{Mtime: mtime, Size: size, At: time.Now()}
+	c.entries[root] = sizeCacheEntry{Mtime: mtime, Dev: dev, Ino: ino, Size: size, At: time.Now()}
 	c.dirty = true
 	c.mu.Unlock()
 	return size
+}
+
+// statIdent extracts (dev, ino) from a FileInfo. Returns zeros on platforms
+// that don't expose Stat_t — in that case the cache key degrades to just
+// (path, mtime), which is the pre-H5 behaviour. Acceptable since H5 only
+// matters on Unix-style filesystems anyway.
+func statIdent(info os.FileInfo) (dev, ino uint64) {
+	if st, ok := info.Sys().(*syscall.Stat_t); ok {
+		return uint64(st.Dev), st.Ino
+	}
+	return 0, 0
 }
 
 // InvalidateSizeCache removes an entry. Call after a successful delete so a

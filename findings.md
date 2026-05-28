@@ -17,12 +17,6 @@ _(none open — see Resolved section at bottom)_
 
 ## HIGH — correctness bugs
 
-### H5. Size-cache key ignores inode/device
-**File:** `internal/scan/sizecache.go:104-107`
-**Verification:** confirmed. Cache key is the path string only. Renaming a directory or remounting a different volume at the same path will hit-with-wrong-data if mtimes happen to match (cross-volume mtime equality is unlikely but not impossible; rename within a volume preserves mtime exactly).
-
-**Fix:** include `(dev, ino)` from `syscall.Stat_t` in `sizeCacheEntry` and verify on hit. Cost: one extra `os.Stat` field per check, near-free.
-
 ### H8. `tea.WithMouseCellMotion()` enabled with zero mouse handlers
 **File:** `internal/tui/model.go:23`
 **Verification:** confirmed. Enabling mouse motion breaks native text-selection / copy-paste in most terminal emulators — users have to hold Option (iTerm) or Shift to copy text. There are zero `tea.MouseMsg` cases anywhere in Update.

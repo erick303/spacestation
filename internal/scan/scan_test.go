@@ -162,6 +162,46 @@ func TestDirSizeDeduplicatesHardlinks(t *testing.T) {
 	}
 }
 
+func TestCachedDirSizeRespectsInode(t *testing.T) {
+	// Isolate the global cache to a test-scratch file so we don't pollute
+	// the user's real sizes.json.
+	globalCacheMu.Lock()
+	globalCache = nil
+	globalCachePath = filepath.Join(t.TempDir(), "sizes.json")
+	globalCacheMu.Unlock()
+	t.Cleanup(func() {
+		globalCacheMu.Lock()
+		globalCache = nil
+		globalCachePath = ""
+		globalCacheMu.Unlock()
+	})
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "f"), make([]byte, 100), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// First call: cache miss, computes the real size and stores it.
+	if got := CachedDirSize(context.Background(), dir, 2); got != 100 {
+		t.Fatalf("first CachedDirSize = %d, want 100", got)
+	}
+
+	// Corrupt the cache entry: poison the size and flip the inode so the
+	// next call's check sees an inode mismatch. If the H5 guard works,
+	// it ignores the poisoned entry and recomputes.
+	c := loadGlobalCache()
+	c.mu.Lock()
+	e := c.entries[dir]
+	e.Ino++
+	e.Size = 999999
+	c.entries[dir] = e
+	c.mu.Unlock()
+
+	if got := CachedDirSize(context.Background(), dir, 2); got != 100 {
+		t.Errorf("CachedDirSize returned stale value %d after inode mismatch; want recompute = 100", got)
+	}
+}
+
 func TestDirSizeRespectsContext(t *testing.T) {
 	// Build a small tree. Cancellation is what matters, not how big.
 	dir := t.TempDir()
