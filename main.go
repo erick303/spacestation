@@ -11,7 +11,6 @@ import (
 
 	"github.com/erick303/spacestation/internal/config"
 	"github.com/erick303/spacestation/internal/scan"
-	"github.com/erick303/spacestation/internal/score"
 	"github.com/erick303/spacestation/internal/tui"
 )
 
@@ -121,7 +120,6 @@ func versionString() string {
 
 func runJSON(cfg config.Config, hard, dry bool) {
 	cands := scan.Run(context.Background(), scan.Options{Cfg: cfg}, nil)
-	score.Apply(cands, cfg)
 	_ = scan.SaveSizeCache()
 
 	if dry {

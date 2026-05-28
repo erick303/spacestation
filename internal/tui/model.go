@@ -15,7 +15,6 @@ import (
 	"github.com/erick303/spacestation/internal/cleanup"
 	"github.com/erick303/spacestation/internal/config"
 	"github.com/erick303/spacestation/internal/scan"
-	"github.com/erick303/spacestation/internal/score"
 )
 
 // Public entrypoint.
@@ -92,11 +91,13 @@ type model struct {
 	trashEmptyAll bool // true = empty the whole Trash; false = remove checked items
 
 	// live progress for the permanent Trash removal. trashProgressCh streams
-	// one TrashProgress per item; trashDone/trashTotal drive the count + bar,
-	// trashLog holds the last few item names so the user sees it run through.
+	// TrashProgress events; trashDone/trashTotal drive the item bar, trashFiles
+	// is the running unlink count (so a big item visibly churns), and trashLog
+	// holds the last few file/item names so the user sees it run through.
 	trashProgressCh chan cleanup.TrashProgress
 	trashDone       int
 	trashTotal      int
+	trashFiles      int
 	trashLog        []string
 
 	// "press space again to confirm group toggle" arm state
@@ -170,6 +171,7 @@ func (m *model) resetForRescan() {
 	m.trashProgressCh = nil
 	m.trashDone = 0
 	m.trashTotal = 0
+	m.trashFiles = 0
 	m.trashLog = nil
 
 	m.armedGroupActive = false
@@ -243,7 +245,6 @@ func (m *model) beginScan(prevCancel context.CancelFunc, prevFinished chan struc
 		}
 		start := time.Now()
 		cands := scan.Run(ctx, scan.Options{Cfg: cfg}, ch)
-		score.Apply(cands, cfg)
 		// Persist size-cache so subsequent scans skip walking unchanged trees.
 		_ = scan.SaveSizeCache()
 		close(finished)
@@ -329,11 +330,15 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.ch != m.trashProgressCh {
 			return m, nil // stale: from a previous removal
 		}
-		m.trashDone = msg.p.Done
+		// Counters come as atomic snapshots from concurrent workers, so events
+		// can arrive slightly out of order; take the max to stay monotonic and
+		// avoid the bar/counter flickering backwards.
+		m.trashDone = max(m.trashDone, msg.p.Done)
+		m.trashFiles = max(m.trashFiles, msg.p.Files)
 		if msg.p.Total > 0 {
 			m.trashTotal = msg.p.Total // authoritative count from ReadDir
 		}
-		// Rolling log of the last 3 items, newest last.
+		// Rolling log of the last 3 names, newest last.
 		name := filepath.Base(msg.p.Path)
 		if msg.p.Err != nil {
 			name += " (failed)"
@@ -796,6 +801,7 @@ func (m *model) executeTrashClean() tea.Cmd {
 	ch := make(chan cleanup.TrashProgress, 256)
 	m.trashProgressCh = ch
 	m.trashDone = 0
+	m.trashFiles = 0
 	m.trashLog = nil
 	if seed, _ := m.trashTargetStats(); seed > 0 {
 		m.trashTotal = seed

@@ -1,4 +1,4 @@
-package score
+package scan
 
 import (
 	"strings"
@@ -6,10 +6,9 @@ import (
 	"time"
 
 	"github.com/erick303/spacestation/internal/config"
-	"github.com/erick303/spacestation/internal/scan"
 )
 
-func TestApply(t *testing.T) {
+func TestApplyScoring(t *testing.T) {
 	now := time.Now()
 
 	cfg := config.Default()
@@ -18,16 +17,16 @@ func TestApply(t *testing.T) {
 
 	cases := []struct {
 		name           string
-		in             scan.Candidate
+		in             Candidate
 		wantSelected   bool
 		wantReasonHas  string
 		wantReasonMiss string // substring that MUST NOT appear (e.g. "-")
 	}{
 		{
 			name: "zero mtime regenerable: do not auto-select",
-			in: scan.Candidate{
-				Category: scan.CatNodeModules,
-				Safety:   scan.SafetyRegenerable,
+			in: Candidate{
+				Category: CatNodeModules,
+				Safety:   SafetyRegenerable,
 				// LastTouched left as time.Time{}
 			},
 			wantSelected:  false,
@@ -35,18 +34,18 @@ func TestApply(t *testing.T) {
 		},
 		{
 			name: "zero mtime Trash: still auto-selects",
-			in: scan.Candidate{
-				Category: scan.CatTrash,
-				Safety:   scan.SafetyUserContent,
+			in: Candidate{
+				Category: CatTrash,
+				Safety:   SafetyUserContent,
 			},
 			wantSelected:  true,
 			wantReasonHas: "Trash",
 		},
 		{
 			name: "future mtime regenerable: not selected, reason clamps to 0d (no negative)",
-			in: scan.Candidate{
-				Category:    scan.CatNodeModules,
-				Safety:      scan.SafetyRegenerable,
+			in: Candidate{
+				Category:    CatNodeModules,
+				Safety:      SafetyRegenerable,
 				LastTouched: now.Add(5 * 24 * time.Hour),
 			},
 			wantSelected:   false,
@@ -55,9 +54,9 @@ func TestApply(t *testing.T) {
 		},
 		{
 			name: "stale regenerable (60d): auto-selects",
-			in: scan.Candidate{
-				Category:    scan.CatNodeModules,
-				Safety:      scan.SafetyRegenerable,
+			in: Candidate{
+				Category:    CatNodeModules,
+				Safety:      SafetyRegenerable,
 				LastTouched: now.Add(-60 * 24 * time.Hour),
 			},
 			wantSelected:  true,
@@ -65,9 +64,9 @@ func TestApply(t *testing.T) {
 		},
 		{
 			name: "recent regenerable (5d): not auto-selected",
-			in: scan.Candidate{
-				Category:    scan.CatNodeModules,
-				Safety:      scan.SafetyRegenerable,
+			in: Candidate{
+				Category:    CatNodeModules,
+				Safety:      SafetyRegenerable,
 				LastTouched: now.Add(-5 * 24 * time.Hour),
 			},
 			wantSelected:  false,
@@ -75,9 +74,9 @@ func TestApply(t *testing.T) {
 		},
 		{
 			name: "old download (120d): auto-selects",
-			in: scan.Candidate{
-				Category:    scan.CatDownloads,
-				Safety:      scan.SafetyUserContent,
+			in: Candidate{
+				Category:    CatDownloads,
+				Safety:      SafetyUserContent,
 				LastTouched: now.Add(-120 * 24 * time.Hour),
 			},
 			wantSelected:  true,
@@ -85,9 +84,9 @@ func TestApply(t *testing.T) {
 		},
 		{
 			name: "recent download (10d): not auto-selected",
-			in: scan.Candidate{
-				Category:    scan.CatDownloads,
-				Safety:      scan.SafetyUserContent,
+			in: Candidate{
+				Category:    CatDownloads,
+				Safety:      SafetyUserContent,
 				LastTouched: now.Add(-10 * 24 * time.Hour),
 			},
 			wantSelected:  false,
@@ -95,9 +94,9 @@ func TestApply(t *testing.T) {
 		},
 		{
 			name: "Trash always selects",
-			in: scan.Candidate{
-				Category:    scan.CatTrash,
-				Safety:      scan.SafetyUserContent,
+			in: Candidate{
+				Category:    CatTrash,
+				Safety:      SafetyUserContent,
 				LastTouched: now.Add(-1 * time.Hour),
 			},
 			wantSelected:  true,
@@ -107,8 +106,8 @@ func TestApply(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cands := []scan.Candidate{tc.in}
-			Apply(cands, cfg)
+			cands := []Candidate{tc.in}
+			applyScoring(cands, cfg)
 			got := cands[0]
 			if got.Selected != tc.wantSelected {
 				t.Errorf("Selected = %v, want %v (reason: %q)", got.Selected, tc.wantSelected, got.Reason)

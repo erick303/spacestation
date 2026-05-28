@@ -152,6 +152,11 @@ func Run(ctx context.Context, opts Options, progress chan<- Progress) []Candidat
 		return candidates[i].SizeBytes > candidates[j].SizeBytes
 	})
 
+	// Apply default selection / reason scoring before returning, so callers
+	// can't forget to (and so a future ad-hoc consumer of scan.Run gets
+	// reasonable defaults without needing to know about scoring at all).
+	applyScoring(candidates, opts.Cfg)
+
 	sendProgress(Progress{Stage: "done", Found: len(candidates), Bytes: totalBytes})
 	return candidates
 }

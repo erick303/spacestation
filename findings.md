@@ -23,10 +23,6 @@ _(none open — see Resolved section at bottom)_
 
 ## MEDIUM — design / coherence
 
-### M1. Fold `score` into `scan`
-**Files:** `internal/score/score.go` (47 LOC), called from `internal/tui/model.go:138` and `main.go:71`.
-**Verification:** confirmed. Single consumer pattern (twice), no interface, no tests. The package adds an import edge and a "remember to call score.Apply after scan.Run" footgun. Recommend `scan.RunWithDefaults(ctx, opts) []Candidate` or moving `Apply` to `scan/score.go` and folding into the tail of `scan.Run`.
-
 ### M2. Fold `trash` into `cleanup`
 **Files:** `internal/trash/trash.go` (90 LOC), called from `internal/cleanup/cleanup.go:62, 64, 75`.
 **Verification:** confirmed. One caller, no abstraction, no tests. The split adds a package boundary without an interface or alternate implementation. Recommend unexported `moveToTrash` / `hardDelete` helpers in `cleanup`.
@@ -219,6 +215,9 @@ Resolved. `main.go` now exposes a `--version` flag that reads `runtime/debug.Rea
 
 ### H8. `tea.WithMouseCellMotion()` enabled with zero mouse handlers
 Resolved. Removed `tea.WithMouseCellMotion()` from `tea.NewProgram` at `internal/tui/model.go:23`. No `tea.MouseMsg` cases exist in Update, so the option was pure cost — terminal emulators (iTerm, Alacritty, etc.) intercept the mouse stream and require Option/Shift to copy text. Native click-drag-to-copy now works again. The option can come back the day a mouse handler is added.
+
+### M1. Fold `score` into `scan`
+Resolved. Moved `Apply` into `internal/scan/score.go` as the unexported `applyScoring`, called as the tail of `scan.Run` right before it returns. The `internal/score/` package is gone (`score.go` + `score_test.go` moved alongside, renamed `score_test.go` to test the new in-package function). Callers (`main.go`, `internal/tui/model.go`) no longer need to remember `score.Apply(cands, cfg)` after `scan.Run` — there's no separate step to forget. `--json` output still scores correctly: 14/141 selected on a sample run with reasons populated.
 
 ### M14. `*m = *newModel(...)` mutation on rescan
 Resolved. Replaced both `*m = *newModel(m.cfg, m.hardDelete)` call sites in `model.go` with `m.resetForRescan()`. The method explicitly classifies every field as either "ephemeral" (scan progress, browsing state, cleaning state, armed-toggle state, disk-usage snapshot — all zeroed/recreated) or "persists" (`cfg`, `hardDelete`, `width`, `height`, `collapsed`, `dashboardOn` — untouched). Future fields added to `model` now require a deliberate decision rather than getting silently zeroed.
