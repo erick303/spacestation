@@ -2,8 +2,29 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"time"
 )
+
+// homeRelative shortens absolute paths under $HOME to start with "~/".
+// Other paths pass through unchanged.
+func homeRelative(p string) string {
+	if p == "" {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return p
+	}
+	if p == home {
+		return "~"
+	}
+	if strings.HasPrefix(p, home+"/") {
+		return "~" + p[len(home):]
+	}
+	return p
+}
 
 func humanBytes(n int64) string {
 	const (

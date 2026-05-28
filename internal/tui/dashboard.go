@@ -1,0 +1,224 @@
+package tui
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/erick303/spacestation/internal/scan"
+)
+
+const (
+	leftPad     = "  "
+	rightMargin = 4  // empty cols at the right edge so bars visibly stop short
+	labelWidth  = 14 // visual indent for the "label    bar/text" pattern
+)
+
+// renderDashboard returns the read-only disk overview:
+//   1) macOS disk numbers — used (%), free, reclaimable
+//   2) macOS disk fullness bar (full width)
+//   3) Reclaim-mix stacked bar, colored per category
+//   4+) Per-category breakdown — wraps across as many lines as needed.
+//
+// width is the available terminal columns. Bars degrade gracefully when narrow.
+func renderDashboard(width int, du scan.DiskUsage, cands []scan.Candidate) string {
+	if width <= 0 {
+		width = 100
+	}
+	inner := width - len(leftPad) - rightMargin
+
+	barW := inner - labelWidth - 2 // ▕…▏
+	if barW < 20 {
+		barW = 20
+	}
+
+	reclaimable := totalCandidateBytes(cands)
+
+	line1 := leftPad + renderDiskText(du, reclaimable)
+	line2 := leftPad + renderDiskBar(barW, du, reclaimable)
+	line3 := leftPad + renderReclaimBar(barW, cands)
+	line4 := renderBreakdown(width-len(leftPad)-rightMargin, cands)
+
+	return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4
+}
+
+// renderDiskText is the text row above the disk bar.
+func renderDiskText(du scan.DiskUsage, reclaimable int64) string {
+	label := mutedStyle.Render(padRight("macOS disk", labelWidth))
+	if du.Total <= 0 {
+		return label + mutedStyle.Render("(disk usage unavailable)")
+	}
+	pct := int(float64(du.Used) / float64(du.Total) * 100)
+	sep := mutedStyle.Render("  ·  ")
+	usedPart := fmt.Sprintf("%s used (%d%% of %s)", humanBytes(du.Used), pct, humanBytes(du.Total))
+	freePart := sizeStyle.Render(humanBytes(du.Free)) + " free"
+	reclPart := sizeStyle.Render(humanBytes(reclaimable)) + " reclaimable"
+	return label + usedPart + sep + freePart + sep + reclPart
+}
+
+func totalCandidateBytes(cs []scan.Candidate) int64 {
+	var n int64
+	for _, c := range cs {
+		n += c.SizeBytes
+	}
+	return n
+}
+
+// renderDiskBar — three segments inside one bar:
+//   cyan  = used non-reclaimable
+//   green = used and reclaimable
+//   muted = free
+func renderDiskBar(barWidth int, du scan.DiskUsage, reclaimable int64) string {
+	label := strings.Repeat(" ", labelWidth) // align under the disk-text row above
+	if du.Total <= 0 {
+		return label + mutedStyle.Render("—")
+	}
+
+	usedNonRecl := du.Used - reclaimable
+	if usedNonRecl < 0 {
+		usedNonRecl = 0
+		reclaimable = du.Used
+	}
+
+	cyanW := proportion(barWidth, usedNonRecl, du.Total)
+	greenW := proportion(barWidth, reclaimable, du.Total)
+	freeW := barWidth - cyanW - greenW
+	if freeW < 0 {
+		freeW = 0
+	}
+
+	cyanStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#7DCFFF"))
+	bar := cyanStyle.Render(strings.Repeat("█", cyanW)) +
+		sizeStyle.Render(strings.Repeat("█", greenW)) +
+		mutedStyle.Render(strings.Repeat("░", freeW))
+
+	return label + "▕" + bar + "▏"
+}
+
+// renderReclaimBar — stacked proportional segments per category.
+func renderReclaimBar(barWidth int, cands []scan.Candidate) string {
+	label := mutedStyle.Render(padRight("reclaim mix", labelWidth))
+	if len(cands) == 0 {
+		return label + mutedStyle.Render("(nothing reclaimable)")
+	}
+
+	type entry struct {
+		cat   scan.Category
+		bytes int64
+	}
+	byCat := map[scan.Category]int64{}
+	for _, c := range cands {
+		byCat[c.Category] += c.SizeBytes
+	}
+	entries := make([]entry, 0, len(byCat))
+	var total int64
+	for cat, b := range byCat {
+		entries = append(entries, entry{cat, b})
+		total += b
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].bytes > entries[j].bytes })
+
+	if total == 0 {
+		return label + mutedStyle.Render("(nothing reclaimable)")
+	}
+
+	var sb strings.Builder
+	allocated := 0
+	for i, e := range entries {
+		var w int
+		if i == len(entries)-1 {
+			w = barWidth - allocated
+		} else {
+			w = proportion(barWidth, e.bytes, total)
+		}
+		if w < 0 {
+			w = 0
+		}
+		allocated += w
+		if w > 0 {
+			sb.WriteString(categoryStyle(e.cat).Render(strings.Repeat("█", w)))
+		}
+	}
+	return label + "▕" + sb.String() + "▏"
+}
+
+// renderBreakdown — color-coded list of categories with sizes, largest first.
+// Wraps across multiple lines when the categories don't fit on one row, with
+// each continuation line indented to align under the first entry.
+func renderBreakdown(termWidth int, cands []scan.Candidate) string {
+	label := mutedStyle.Render(padRight("breakdown", labelWidth))
+	indent := strings.Repeat(" ", labelWidth)
+	if len(cands) == 0 {
+		return leftPad + label + mutedStyle.Render("—")
+	}
+	type entry struct {
+		cat   scan.Category
+		bytes int64
+	}
+	byCat := map[scan.Category]int64{}
+	for _, c := range cands {
+		byCat[c.Category] += c.SizeBytes
+	}
+	entries := make([]entry, 0, len(byCat))
+	for cat, b := range byCat {
+		entries = append(entries, entry{cat, b})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].bytes > entries[j].bytes })
+
+	const sepW = 3 // visible " · "
+	sep := mutedStyle.Render(" · ")
+
+	maxLineW := termWidth
+	if maxLineW < labelWidth+10 {
+		maxLineW = labelWidth + 10
+	}
+
+	var lines []string
+	var line strings.Builder
+	line.WriteString(leftPad)
+	line.WriteString(label)
+	lineW := len(leftPad) + labelWidth
+	firstOnLine := true
+
+	for _, e := range entries {
+		txt := fmt.Sprintf("%s %s", e.cat.String(), humanBytes(e.bytes))
+		txtW := len(txt)
+		need := txtW
+		if !firstOnLine {
+			need += sepW
+		}
+		if lineW+need > maxLineW && !firstOnLine {
+			// wrap to a new continuation line, no separator at start
+			lines = append(lines, line.String())
+			line.Reset()
+			line.WriteString(leftPad)
+			line.WriteString(indent)
+			lineW = len(leftPad) + labelWidth
+			firstOnLine = true
+		}
+		if !firstOnLine {
+			line.WriteString(sep)
+			lineW += sepW
+		}
+		line.WriteString(categoryStyle(e.cat).Render(txt))
+		lineW += txtW
+		firstOnLine = false
+	}
+	lines = append(lines, line.String())
+	return strings.Join(lines, "\n")
+}
+
+// proportion returns round(width * num / denom) clamped to >= 0.
+func proportion(width int, num, denom int64) int {
+	if denom <= 0 || width <= 0 {
+		return 0
+	}
+	v := int(int64(width) * num / denom)
+	if v < 0 {
+		v = 0
+	}
+	return v
+}
+

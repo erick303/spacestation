@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>spacestation — TUI mockup</title>
+<style>
+  :root {
+    --bg:        #1A1B26;
+    --bg-2:     #16161E;
+    --fg:       #C0CAF5;
+    --muted:    #565F89;
+    --muted-2:  #414868;
+    --accent:   #7AA2F7;
+    --accent-2: #BB9AF7;
+    --good:     #9ECE6A;
+    --warn:     #E0AF68;
+    --danger:   #F7768E;
+    --cyan:     #7DCFFF;
+  }
+  html, body {
+    margin: 0; padding: 0;
+    background: #0E0E14;
+    color: var(--fg);
+    font-family: "JetBrains Mono", "Fira Code", "SF Mono", ui-monospace, monospace;
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  .page {
+    max-width: 1100px;
+    margin: 32px auto;
+    padding: 0 16px;
+  }
+  h1, h2 {
+    color: var(--muted);
+    font-weight: 500;
+    font-family: inherit;
+    letter-spacing: 0.02em;
+  }
+  h1 { font-size: 13px; text-transform: uppercase; margin: 0 0 6px; color: var(--muted-2); }
+  h2 { font-size: 12px; margin: 26px 0 8px; color: var(--muted-2); }
+  .term {
+    background: var(--bg);
+    border-radius: 8px;
+    padding: 18px 22px 14px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.4), 0 0 0 1px #20212c;
+    overflow-x: auto;
+  }
+  pre {
+    margin: 0;
+    font-family: inherit;
+    font-size: 13.5px;
+    line-height: 1.55;
+    white-space: pre;
+  }
+  /* color classes */
+  .acc  { color: var(--accent); }
+  .acc2 { color: var(--accent-2); }
+  .mut  { color: var(--muted); }
+  .mut2 { color: var(--muted-2); }
+  .good { color: var(--good); }
+  .warn { color: var(--warn); }
+  .dan  { color: var(--danger); }
+  .cyan { color: var(--cyan); }
+  .bold { font-weight: 600; }
+
+  /* selection highlight */
+  .sel {
+    background: var(--accent);
+    color: #0E0E14;
+    font-weight: 600;
+  }
+  .sel .good, .sel .mut, .sel .acc, .sel .warn, .sel .dan, .sel .cyan {
+    color: #0E0E14;
+  }
+
+  /* the stacked bar segments */
+  .seg { display: inline; }
+  .docker { color: #7DCFFF; }
+  .node   { color: #9ECE6A; }
+  .sys    { color: #E0AF68; }
+  .go     { color: #BB9AF7; }
+  .js     { color: #F7768E; }
+  .xcode  { color: #7AA2F7; }
+  .py     { color: #F2CC8F; }
+  .brew   { color: #C0CAF5; }
+  .rust   { color: #FF9E64; }
+
+  .caption {
+    margin: 8px 4px 0;
+    color: var(--muted);
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<h1>spacestation — TUI mockup (with proposed dashboard)</h1>
+
+<h2>Browsing — full layout, dashboard visible, item under cursor</h2>
+<div class="term"><pre><span class="acc bold">spacestation</span>   <span class="acc bold">187.34 GB reclaimable</span>   <span class="mut">42.10 GB default-selected (308 / 515 items)</span>   <span class="mut">scanned in 5.7s</span>
+
+<span class="mut">macOS disk</span>   <span class="cyan">▕████████████</span><span class="good">███████████</span><span class="mut2">░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▏</span>   <span class="bold">412 / 994 GB used (41%)</span>  <span class="mut">·</span>  <span class="good bold">187 GB reclaimable</span> <span class="mut">(of that)</span>
+<span class="mut">reclaim mix</span>   <span class="docker">█████████████████</span><span class="node">████████</span><span class="sys">██████</span><span class="js">██</span><span class="go">██</span><span class="py">█</span><span class="brew">▌</span><span class="rust">▎</span><span class="xcode">·</span>
+<span class="mut">breakdown</span>     <span class="docker">Docker 88.0 GB</span> <span class="mut">·</span> <span class="node">Node 38.6 GB</span> <span class="mut">·</span> <span class="sys">Sys 29.6 GB</span> <span class="mut">·</span> <span class="js">JS Build 11.1 GB</span> <span class="mut">·</span> <span class="go">Go 8.2 GB</span> <span class="mut">·</span> <span class="py">Python 6.4 GB</span> <span class="mut">·</span> <span class="brew">Homebrew 2.4 GB</span> <span class="mut">·</span> <span class="rust">Rust 1.1 GB</span> <span class="mut">·</span> <span class="xcode">Xcode 840 MB</span>
+
+<span class="acc">▼ Node.js</span>          <span class="good">· 5.59 GB cleaning (2/86 items)</span><span class="mut"> of 38.61 GB</span>
+   <span class="good">[x]</span> <span class="warn">⚡ </span>npm: cache clean                                  <span class="good">16.88 GB</span>   <span class="mut">2d ago</span>
+   <span class="good">[x]</span> <span class="warn">⚡ </span>pnpm: prune unreferenced (keeps installs fast)     <span class="good"> 3.95 GB</span>   <span class="mut">1d ago</span>
+   <span class="mut">[ ]</span>    ~/projects/mesh/api/node_modules                <span class="good"> 2.10 GB</span>   <span class="mut">89d ago</span>
+   <span class="mut">[ ]</span>    ~/projects/skyframe/mainstreet/node_modules     <span class="good"> 1.64 GB</span>   <span class="mut">14d ago</span>
+   <span class="mut">[ ]</span>    ~/projects/1pulse/berry-blast/website/…modules  <span class="good"> 1.31 GB</span>   <span class="mut">73d ago</span>
+<span class="acc">▶ JS Build Output</span>   <span class="mut">· 77 items · 11.06 GB</span>
+<span class="acc">▼ Docker</span>           <span class="good">· 10.89 GB cleaning (1/1 items)</span><span class="mut"> of 88.00 GB</span>
+<span class="sel">   [x] ⚡ Docker: prune unused images, containers, volumes, builds   10.89 GB     now</span>
+   <span class="mut">[ ]</span>    ~/Library/Containers/com.docker.docker/Data/vms <span class="good">88.00 GB</span>   <span class="mut">2h ago</span>
+<span class="acc">▼ Go Cache</span>         <span class="good">· 7.19 GB cleaning (1/2 items)</span><span class="mut"> of 8.23 GB</span>
+   <span class="good">[x]</span> <span class="warn">⚡ </span>Go: clean module download cache (-modcache)        <span class="good"> 7.19 GB</span>   <span class="mut">3d ago</span>
+   <span class="mut">[ ]</span> <span class="warn">⚡ </span>Go: clean build cache (-cache)                     <span class="good"> 1.04 GB</span>   <span class="mut">12h ago</span>
+<span class="acc">▶ Xcode</span>            <span class="mut">· 57 items · 0.84 GB</span>
+<span class="acc">▶ Homebrew</span>         <span class="good">· 1.24 GB cleaning (1/2 items)</span><span class="mut"> of 2.41 GB</span>
+<span class="acc">▶ Python</span>           <span class="good">· 6.37 GB cleaning (2/39 items)</span><span class="mut"> of 6.40 GB</span>
+<span class="acc">▶ Rust</span>             <span class="mut">· 31 items · 1.10 GB</span>
+<span class="acc">▶ System Cache</span>     <span class="mut">· 211 items · 29.59 GB</span>
+<span class="acc">▶ Trash</span>            <span class="good">· 0.03 GB cleaning (1/1 items)</span><span class="mut"> of 0.03 GB</span>
+
+  <span class="warn">⚡ docker system prune -a --volumes -f</span>
+  <span class="mut">Removes unused images, stopped containers, unused volumes, and the entire build cache. Does NOT shrink Docker Desktop's VM disk image — for that use Docker Desktop &gt; Troubleshoot &gt; Clean / Purge Data.</span>
+  <span class="good">regenerable</span>  <span class="mut">•  Stale 2h, regenerable</span>
+
+  <span class="mut">space toggle  a select-group  u clear-group  A select-all  c clear</span>
+  <span class="mut">tab collapse  v dashboard  enter clean  r rescan  q quit</span>
+</pre></div>
+<div class="caption">Selected (cursor) row shown highlighted. <code>⚡</code> marks smart command candidates. Per-group headers show "<span class="good">X GB cleaning</span> of total" when any item in that group is selected.</div>
+
+<h2>Scanning — initial load, spinner with live progress</h2>
+<div class="term"><pre>
+<span class="acc bold">spacestation</span>  <span class="acc">⠧</span>  scanning… <span class="acc">~/projects/mesh</span>
+
+  <span class="mut">found 412 candidates, 156.4 GB reclaimable so far  (3.8s)</span>
+
+  <span class="mut">press q to cancel</span>
+</pre></div>
+
+<h2>Cleaning — live progress (proposed)</h2>
+<div class="term"><pre>
+<span class="acc bold">spacestation</span>  <span class="acc">⠦</span>  cleaning <span class="good">42.10 GB</span> across <span class="good">308 items</span>
+
+  <span class="acc">▕████████████████████████░░░░░░░░░░░░░░</span>  62%   <span class="mut">1m24s elapsed</span>
+
+  <span class="mut">step 5/9</span>  <span class="warn">⚡</span> running <span class="cyan">docker system prune -a --volumes -f</span>   <span class="mut">(this can take a minute)</span>
+  <span class="mut">                Total reclaimed space: 10.89GB</span>
+  <span class="mut">                Deleted Images:</span>
+  <span class="mut">                untagged: postgres@sha256:8b1ec5…</span>
+
+  <span class="good">✓</span>  <span class="mut">batch 1 of 13 moved to Trash (25 items)</span>
+  <span class="good">✓</span>  <span class="mut">batch 2 of 13 moved to Trash (25 items)</span>
+  <span class="good">✓</span>  <span class="mut">batch 3 of 13 moved to Trash (25 items)</span>
+  <span class="good">✓</span>  <span class="mut">batch 4 of 13 moved to Trash (25 items)</span>
+  <span class="good">✓</span>  <span class="mut">batch 5 of 13 moved to Trash (25 items)</span>
+
+  <span class="mut">esc cancel after current step</span>
+</pre></div>
+
+<h2>Confirmation modal — before cleanup runs</h2>
+<div class="term"><pre>
+<span class="mut">… browsing screen behind …</span>
+
+  <span class="mut">╭───────────────────────────────────────────────────────────╮</span>
+  <span class="mut">│</span>  Move to Trash  <span class="acc bold">42.10 GB</span>                                <span class="mut">│</span>
+  <span class="mut">│</span>                                                           <span class="mut">│</span>
+  <span class="mut">│</span>  308 items, 42.10 GB                                       <span class="mut">│</span>
+  <span class="mut">│</span>                                                           <span class="mut">│</span>
+  <span class="mut">│</span>  <span class="mut">Items will go to ~/.Trash — you can restore from Finder.</span>  <span class="mut">│</span>
+  <span class="mut">│</span>                                                           <span class="mut">│</span>
+  <span class="mut">│</span>  <span class="mut">y / enter  confirm     n / esc  cancel</span>                  <span class="mut">│</span>
+  <span class="mut">╰───────────────────────────────────────────────────────────╯</span>
+</pre></div>
+
+<h2>Done — frozen elapsed, partial failures listed</h2>
+<div class="term"><pre>
+<span class="acc bold">spacestation</span>  <span class="good">✓ done</span>
+
+  <span class="good">60.87 GB</span> moved to Trash across 321 items in <span class="bold">4m11s</span>
+  <span class="warn">2 items failed:</span>
+  <span class="mut">• ~/Library/Caches/com.apple.bird: permission denied</span>
+  <span class="mut">• docker system prune: exit status 1 (Cannot connect to the Docker daemon)</span>
+
+  <span class="mut">r rescan   q quit</span>
+</pre></div>
+
+<h2>Flash / two-press confirm — space pressed on a group header</h2>
+<div class="term"><pre>
+<span class="mut">… list above …</span>
+
+<span class="acc">▼ Node.js</span>          <span class="good">· 5.59 GB cleaning (2/86 items)</span><span class="mut"> of 38.61 GB</span>
+   ...
+
+  <span class="warn">⚠ Press space again to toggle all 86 items in Node.js (a/u also work)</span>
+
+  <span class="mut">space toggle  a select-group  u clear-group  A select-all  c clear</span>
+  <span class="mut">tab collapse  v dashboard  enter clean  r rescan  q quit</span>
+</pre></div>
+
+<p style="margin-top:30px; color:#565F89; font-size:12px; line-height:1.6">
+Notes on the proposed dashboard: <code style="color:#7AA2F7">v</code> toggles it. The
+<em>macOS disk</em> line answers "is my disk full?" with one bar; the
+<em>reclaim mix</em> line is one stacked bar with per-category colors and a tiny
+legend on the right — no second per-category chart, since the grouped list below
+is already that view. Dashboard takes 3 lines and you can dismiss it any time.
+</p>
+</div>
+</body>
+</html>

@@ -80,6 +80,10 @@ type model struct {
 	armedGroupCat    scan.Category
 	armedGroupActive bool
 	armedExpiry      time.Time
+
+	// dashboard
+	dashboardOn bool
+	diskUsage   scan.DiskUsage
 }
 
 func newModel(cfg config.Config, hard bool) *model {
@@ -87,13 +91,14 @@ func newModel(cfg config.Config, hard bool) *model {
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(colorAccent)
 	return &model{
-		cfg:        cfg,
-		hardDelete: hard,
-		stage:      stageScanning,
-		spinner:    sp,
-		scanStart:  time.Now(),
-		collapsed:  map[scan.Category]bool{},
-		progressCh: make(chan scan.Progress, 64),
+		cfg:         cfg,
+		hardDelete:  hard,
+		stage:       stageScanning,
+		spinner:     sp,
+		scanStart:   time.Now(),
+		collapsed:   map[scan.Category]bool{},
+		progressCh:  make(chan scan.Progress, 64),
+		dashboardOn: true,
 	}
 }
 
@@ -181,6 +186,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cands = msg.cands
 		m.scanElapsed = msg.elapsed
 		m.scanDone = true
+		m.diskUsage = scan.GetDiskUsage("/")
 		m.rebuildRows()
 		m.stage = stageBrowsing
 		return m, nil
@@ -286,6 +292,8 @@ func (m *model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// rescan
 		*m = *newModel(m.cfg, m.hardDelete)
 		return m, m.Init()
+	case "v":
+		m.dashboardOn = !m.dashboardOn
 	}
 	return m, nil
 }
@@ -520,11 +528,13 @@ func (m *model) viewBrowsing() string {
 		m.countSelected(), len(m.cands), humanBytes(m.selectedBytes())))
 	scanLine := statMutedStyle.Render(fmt.Sprintf("scanned in %s", m.scanElapsed.Truncate(100*time.Millisecond)))
 
-	header := lipgloss.JoinHorizontal(lipgloss.Top, title, "  ", statsLine, "  ", selLine, "  ", scanLine)
+	divider := mutedStyle.Render("│")
+	header := "  " + lipgloss.JoinHorizontal(lipgloss.Top,
+		title, "  ", divider, "  ", statsLine, "  ", divider, "  ", selLine, "  ", divider, "  ", scanLine)
 
 	// Two compact help lines so they never wrap unpredictably on narrow terms.
 	helpLine1 := "space toggle  a select-group  u clear-group  A select-all  c clear"
-	helpLine2 := "tab collapse  enter clean  r rescan  q quit"
+	helpLine2 := "tab collapse  v dashboard  enter clean  r rescan  q quit"
 	help := helpStyle.Render(helpLine1 + "\n" + helpLine2)
 
 	flashLine := ""
@@ -535,11 +545,20 @@ func (m *model) viewBrowsing() string {
 	// detail pane has 3 lines (action, detail, safety+reason)
 	detail := m.renderDetail(width)
 
-	// Account for everything that's NOT the list, exactly:
-	//   header(1) + gap(1) + gap-before-detail(1) + detail(3)
-	// + gap-before-help(1) + helpStyle.PaddingTop(1) + help(2 lines)
-	// + flashLine when present (1)
-	reserved := 10
+	dashboard := ""
+	dashboardLines := 0
+	if m.dashboardOn {
+		dashboard = renderDashboard(width, m.diskUsage, m.cands)
+		// Count actual lines — breakdown wraps when many categories or narrow term.
+		dashboardLines = strings.Count(dashboard, "\n") + 2 // self + blank below
+	}
+
+	// Account for everything that's NOT the list:
+	//   header(1) + blank(1) [+ dashboard(3) + blank(1)]
+	// + blank-before-detail(1) + detail(3)
+	// + blank-before-help(1) + helpStyle.PaddingTop(1) + help(2 lines)
+	// + flash(1 when present)
+	reserved := 11 + dashboardLines
 	if flashLine != "" {
 		reserved += 1
 	}
@@ -549,7 +568,11 @@ func (m *model) viewBrowsing() string {
 	}
 	listView := m.renderList(width, viewportHeight)
 
-	parts := []string{header, listView, detail}
+	parts := []string{header, ""}
+	if dashboard != "" {
+		parts = append(parts, dashboard, "")
+	}
+	parts = append(parts, listView, detail)
 	if flashLine != "" {
 		parts = append(parts, flashLine)
 	}
@@ -583,63 +606,127 @@ func (m *model) renderList(width, height int) string {
 		}
 	}
 
+	// Scroll thumb: figure out which visible rows correspond to the scrollbar
+	// thumb so we can light up a vertical bar at the right edge.
+	viewport := end - start
+	total := len(m.rows)
+	thumbStart, thumbEnd := 0, viewport
+	if total > viewport {
+		thumbStart = start * viewport / total
+		thumbSize := viewport * viewport / total
+		if thumbSize < 1 {
+			thumbSize = 1
+		}
+		thumbEnd = thumbStart + thumbSize
+		if thumbEnd > viewport {
+			thumbEnd = viewport
+		}
+	}
+
 	var b strings.Builder
 	for i := start; i < end; i++ {
 		isCursor := i == m.cursor
 		r := m.rows[i]
+		// Breathing room above each group header — except for the very first
+		// visible row, which would otherwise create a leading blank.
+		if i > start && r.isHeader {
+			// Blank separator row also has a scrollbar tick if applicable.
+			b.WriteString(scrollTick(width, i-start, thumbStart, thumbEnd))
+			b.WriteString("\n")
+		}
+
 		var line string
 		if r.isHeader {
-			count, bytes := m.groupStats(r.cat)
-			selCount, selBytes := m.groupSelectedStats(r.cat)
-			caret := "▼"
-			if m.collapsed[r.cat] {
-				caret = "▶"
-			}
-			var selPart string
-			if selCount > 0 {
-				selPart = sizeStyle.Render(fmt.Sprintf("· %s cleaning (%d/%d items)", humanBytes(selBytes), selCount, count)) +
-					mutedStyle.Render(fmt.Sprintf(" of %s", humanBytes(bytes)))
-			} else {
-				selPart = mutedStyle.Render(fmt.Sprintf("· %d items · %s", count, humanBytes(bytes)))
-			}
-			text := fmt.Sprintf("%s %s  %s", caret, r.cat.String(), selPart)
-			if isCursor {
-				line = groupHeaderSelectedStyle.Render(text)
-			} else {
-				line = groupHeaderStyle.Render(text)
-			}
+			line = m.renderHeaderRow(r, isCursor)
 		} else {
-			c := m.cands[r.candIdx]
-			cb := checkboxOff
-			if c.Selected {
-				cb = checkboxOn
-			}
-			pathW := width - 36
-			if pathW < 20 {
-				pathW = 20
-			}
-			label := c.DisplayTitle()
-			tag := ""
-			if c.Action == scan.ActionCommand {
-				tag = "⚡ " // lightning = smart cleanup
-			}
-			path := truncatePath(tag+label, pathW)
-			text := fmt.Sprintf("%s %s  %s   %s",
-				cb,
-				padRight(path, pathW),
-				sizeStyle.Render(padLeft(humanBytes(c.SizeBytes), 9)),
-				ageStyle.Render(padLeft(humanAge(c.LastTouched), 9)),
-			)
-			if isCursor {
-				line = itemSelectedStyle.Render(text)
-			} else {
-				line = itemStyle.Render(text)
-			}
+			line = m.renderItemRow(width, m.cands[r.candIdx], isCursor)
 		}
+		// Append scroll-thumb indicator at the right edge.
+		line += "  " + scrollTick(width, i-start, thumbStart, thumbEnd)
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// scrollTick returns a single rune at the right edge of a row indicating
+// whether that row is currently within the scrollbar thumb.
+func scrollTick(_ int, viewportIdx, thumbStart, thumbEnd int) string {
+	if viewportIdx >= thumbStart && viewportIdx < thumbEnd {
+		return lipgloss.NewStyle().Foreground(colorAccent).Render("▎")
+	}
+	return mutedStyle.Render("·")
+}
+
+func (m *model) renderHeaderRow(r row, isCursor bool) string {
+	count, bytes := m.groupStats(r.cat)
+	selCount, selBytes := m.groupSelectedStats(r.cat)
+	caret := "▼"
+	if m.collapsed[r.cat] {
+		caret = "▶"
+	}
+	var selPart string
+	if selCount > 0 {
+		selPart = sizeStyle.Render(fmt.Sprintf("· %s cleaning (%d/%d items)", humanBytes(selBytes), selCount, count)) +
+			mutedStyle.Render(fmt.Sprintf(" of %s", humanBytes(bytes)))
+	} else {
+		selPart = mutedStyle.Render(fmt.Sprintf("· %d items · %s", count, humanBytes(bytes)))
+	}
+	// Category color on the name itself ties the row back to the dashboard mix-bar segment.
+	name := categoryStyle(r.cat).Bold(true).Render(r.cat.String())
+	body := fmt.Sprintf("%s %s  %s", caret, name, selPart)
+	if isCursor {
+		return "  " + groupHeaderSelectedStyle.Render(body)
+	}
+	return "  " + groupHeaderStyle.Render(body)
+}
+
+func (m *model) renderItemRow(width int, c scan.Candidate, isCursor bool) string {
+	cb := checkboxOff
+	if c.Selected {
+		cb = checkboxOn
+	}
+	// "  ●  " on the left = leftPad(2) + dot(1) + space(2) ; the dot stays its
+	// own color even when the row is highlighted because it's rendered outside
+	// the selection style.
+	dot := categoryStyle(c.Category).Render("●")
+
+	pathW := width - 38
+	if pathW < 20 {
+		pathW = 20
+	}
+	label := c.DisplayTitle()
+	if c.Action == scan.ActionDelete {
+		label = homeRelative(label)
+	}
+	tag := ""
+	if c.Action == scan.ActionCommand {
+		tag = "⚡ "
+	}
+	path := truncatePath(tag+label, pathW)
+	paddedPath := padRight(path, pathW)
+	if c.Action == scan.ActionCommand && !isCursor {
+		// Style only the visible title; trailing spaces stay unstyled so they
+		// don't get bold-yellow under the size/age columns. Safe when the path
+		// was truncated (paddedPath == path, no trailing).
+		if len(paddedPath) > len(path) {
+			paddedPath = smartTitleStyle.Render(path) + paddedPath[len(path):]
+		} else {
+			paddedPath = smartTitleStyle.Render(paddedPath)
+		}
+	}
+	inner := fmt.Sprintf("%s %s  %s   %s",
+		cb,
+		paddedPath,
+		sizeStyle.Render(padLeft(humanBytes(c.SizeBytes), 9)),
+		ageStyle.Render(padLeft(humanAge(c.LastTouched), 9)),
+	)
+	if isCursor {
+		inner = itemSelectedStyle.Render(inner)
+	} else {
+		inner = itemStyle.Render(inner)
+	}
+	return "  " + dot + "  " + inner
 }
 
 func (m *model) renderDetail(width int) string {
