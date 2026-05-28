@@ -17,11 +17,7 @@ _(none open — see Resolved section at bottom)_
 
 ## HIGH — correctness bugs
 
-### H8. `tea.WithMouseCellMotion()` enabled with zero mouse handlers
-**File:** `internal/tui/model.go:23`
-**Verification:** confirmed. Enabling mouse motion breaks native text-selection / copy-paste in most terminal emulators — users have to hold Option (iTerm) or Shift to copy text. There are zero `tea.MouseMsg` cases anywhere in Update.
-
-**Fix:** remove `tea.WithMouseCellMotion()`. Add it back when an actual mouse interaction is implemented.
+_(none open — see Resolved section at bottom)_
 
 ---
 
@@ -254,3 +250,6 @@ Resolved. `sizeCacheEntry` now carries `Dev` and `Ino` (omitempty on platforms w
 
 ### Hy3. No `--version` flag / build-info embedding
 Resolved. `main.go` now exposes a `--version` flag that reads `runtime/debug.ReadBuildInfo()` and reports either the module version (for `go install` builds) or the VCS commit + dirty flag (for local builds), falling back to "dev" when neither is available. Zero build-tooling dependency — no `-ldflags`, no `vendor.go` shenanigans.
+
+### H8. `tea.WithMouseCellMotion()` enabled with zero mouse handlers
+Resolved. Removed `tea.WithMouseCellMotion()` from `tea.NewProgram` at `internal/tui/model.go:23`. No `tea.MouseMsg` cases exist in Update, so the option was pure cost — terminal emulators (iTerm, Alacritty, etc.) intercept the mouse stream and require Option/Shift to copy text. Native click-drag-to-copy now works again. The option can come back the day a mouse handler is added.

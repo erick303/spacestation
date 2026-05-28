@@ -20,7 +20,7 @@ import (
 // Public entrypoint.
 func Run(cfg config.Config, hardDelete bool) error {
 	m := newModel(cfg, hardDelete)
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }
