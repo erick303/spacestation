@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>H3 — hardlink double-counting in DirSize</title>
+<style>
+  :root {
+    --fg: #1a1a1a;
+    --muted: #666;
+    --bg: #fafaf7;
+    --accent: #b94a48;
+    --rule: #e0ddd5;
+    --code-bg: #f1efe7;
+    --note-bg: #fdf6e3;
+  }
+  html { background: var(--bg); }
+  body {
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    line-height: 1.55;
+    max-width: 800px;
+    margin: 2.5rem auto;
+    padding: 0 1.25rem;
+  }
+  h1 { font-size: 1.75rem; border-bottom: 2px solid var(--accent); padding-bottom: 0.4rem; }
+  h2 { font-size: 1.3rem; margin-top: 2.5rem; color: var(--accent); }
+  h3 { font-size: 1.05rem; margin-top: 1.6rem; }
+  p, li { font-size: 0.97rem; }
+  code { background: var(--code-bg); padding: 0.05em 0.35em; border-radius: 3px; font-size: 0.9em; }
+  pre {
+    background: var(--code-bg);
+    padding: 0.9rem 1rem;
+    border-radius: 4px;
+    overflow-x: auto;
+    font-size: 0.85rem;
+    line-height: 1.45;
+  }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; margin: 1rem 0; width: 100%; font-size: 0.93rem; }
+  th, td { border: 1px solid var(--rule); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+  th { background: var(--code-bg); }
+  .note {
+    background: var(--note-bg);
+    border-left: 3px solid #d4a017;
+    padding: 0.7rem 1rem;
+    margin: 1rem 0;
+    font-size: 0.93rem;
+  }
+  .glossary dt { font-weight: 600; margin-top: 0.6rem; }
+  .glossary dd { margin-left: 1.2rem; color: #333; font-size: 0.93rem; }
+  .recommendation {
+    background: #e8f4ea;
+    border-left: 3px solid #2d7a3e;
+    padding: 0.9rem 1.1rem;
+    margin: 1.5rem 0;
+  }
+  .recommendation h3 { margin-top: 0; color: #2d7a3e; }
+  .toc { font-size: 0.92rem; color: var(--muted); }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<h1>H3 — DirSize double-counts hardlinked files</h1>
+<p>This document explains how <code>DirSize</code> over-reports for directories that contain hardlinks (Time Machine local snapshots, pnpm content-addressable storage, certain backup trees) and decides how much dedup to add.</p>
+
+<nav class="toc"><strong>On this page:</strong> <a href="#glossary">Glossary</a> · <a href="#picture">The picture</a> · <a href="#options">Three options</a> · <a href="#recommendation">Recommendation</a></nav>
+
+<h2 id="glossary">Glossary</h2>
+<dl class="glossary">
+  <dt>inode</dt>
+  <dd>The actual on-disk object representing a file's data and metadata. A single inode holds the bytes; a "filename" is a directory entry that points at an inode. Different names can point at the same inode — that's a hardlink.</dd>
+
+  <dt>hardlink</dt>
+  <dd>A second directory entry pointing at an existing inode. The file appears in two places but takes up only one copy on disk. Deleting one name decrements the inode's link count; the bytes stay on disk until the last name is removed.</dd>
+
+  <dt>symlink (soft link)</dt>
+  <dd>A small file whose <em>content</em> is the path to another file. Different from a hardlink: a symlink can cross filesystems and survive its target being deleted (it just becomes broken). spacestation skips symlinks already, so they're not the bug.</dd>
+
+  <dt><code>(dev, ino)</code></dt>
+  <dd>A two-part identifier that uniquely names an inode across the whole running system: the device ID of the filesystem plus the inode number within that filesystem. Two unrelated filesystems can each have an "inode 12345", so the device number is what disambiguates.</dd>
+
+  <dt><code>os.FileInfo</code></dt>
+  <dd>Go's filesystem metadata struct. Its <code>Size()</code> method returns "the size of the file as named" — i.e. the size attributed to <em>this name</em>, not to the underlying inode. For a hardlinked file, every name reports the same size, even though deleting any one name frees zero bytes (the inode keeps the data alive).</dd>
+
+  <dt>CAS (content-addressable storage)</dt>
+  <dd>A store where files are keyed by a hash of their content. Identical content lives in exactly one place. pnpm uses this: a package's files live once in <code>~/Library/pnpm/store</code>, and every project's <code>node_modules</code> contains hardlinks back to the store. This is also Time Machine's APFS clone model in spirit.</dd>
+
+  <dt><code>DirSize</code></dt>
+  <dd>The function in <code>internal/scan/size.go</code> that walks a directory and sums <code>FileInfo.Size()</code> for every regular file it sees. Today it counts every hardlinked file once per name, not once per inode.</dd>
+
+  <dt>logical size vs physical size</dt>
+  <dd>Logical = "sum of file sizes as you'd see them in <code>ls</code>." Physical = "actual bytes occupied on disk." For a tree with no hardlinks they're equal. For a CAS or snapshot tree, logical can be many times larger than physical.</dd>
+
+  <dt><code>syscall.Stat_t</code></dt>
+  <dd>Go's Unix-specific stat structure that exposes the device ID and inode number. <code>os.FileInfo</code> hides these — you have to type-assert <code>info.Sys()</code> to <code>*syscall.Stat_t</code> on Linux/macOS to read them.</dd>
+</dl>
+
+<h2 id="picture">The picture</h2>
+
+<p>Here's a concrete example. Picture a single pnpm project on disk. The project uses <code>react</code>, <code>react-dom</code>, and <code>@types/react</code> across a dependency tree where 14 sub-packages all pull react as a peer dependency.</p>
+
+<pre>
+~/Library/pnpm/store/v3/files/                  ← THE CAS, one copy per file
+  88/                                            (inode 90001)  react/index.js     14 KB
+  a2/                                            (inode 90002)  react/cjs/...      82 KB
+  ...                                            ~30,000 unique inodes, ~1.8 GB total
+
+~/projects/acme-api/node_modules/.pnpm/
+  react@18.2.0/node_modules/react/
+    index.js   ──hardlink──▶ inode 90001 (14 KB, ALSO named in store)
+    cjs/...    ──hardlink──▶ inode 90002 (82 KB, ALSO named in store)
+  react-dom@18.2.0/node_modules/react/
+    index.js   ──hardlink──▶ inode 90001  (SAME inode again)
+    cjs/...    ──hardlink──▶ inode 90002
+  ... 12 more sub-packages, all hardlinking back to the same react inodes
+</pre>
+
+<p>When the user runs spacestation, the candidate list includes <code>~/Library/pnpm/store</code> as a system path probe AND <code>~/projects/acme-api/node_modules</code> as a project walk match. <code>DirSize</code> is called once per candidate. Here's what each call sees and reports:</p>
+
+<table>
+  <thead>
+    <tr><th>Candidate</th><th>What DirSize walks</th><th>What it reports today</th><th>What it <em>should</em> report</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>~/Library/pnpm/store</code></td>
+      <td>~30,000 unique files, each named once inside the store</td>
+      <td>1.8 GB (correct by coincidence — store has no within-store hardlinks)</td>
+      <td>1.8 GB</td>
+    </tr>
+    <tr>
+      <td><code>node_modules</code> of one project</td>
+      <td>react's <code>index.js</code> appears 14 times (once per sub-package); same for every shared dep</td>
+      <td><strong>~3.4 GB</strong> (14× inflation on the heavily-shared files)</td>
+      <td><strong>~280 MB</strong> (unique inodes within this tree)</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note"><strong>Why this is a real bug:</strong> The user sees <code>node_modules</code> listed at 3.4 GB, gets excited, deletes it — and finds out only ~280 MB was actually freed, because the 14 hardlinks to each store file just lost one name; the inode still has the store name alive. The "reclaim" headline number is overpromising.</div>
+
+<p>Beyond pnpm, the same pattern shows up in:</p>
+<ul>
+  <li><strong>Time Machine local snapshots.</strong> APFS clones are inode-shared with the live filesystem. A snapshot of <code>~/Library</code> appears to contain a full copy but is mostly shared inodes.</li>
+  <li><strong><code>rsync --link-dest</code> backup trees.</strong> Each daily backup hardlinks unchanged files to the previous day. <code>du</code> reports the size as if each day were a full copy.</li>
+  <li><strong>Photo libraries, certain databases.</strong> Anything that does its own snapshotting via hardlinks.</li>
+</ul>
+
+<h2 id="options">Three options</h2>
+
+<h3>Option A — per-call inode dedup</h3>
+<p>Each <code>DirSize</code> call maintains its own <code>map[uint64]struct{}</code> keyed by <code>(dev &lt;&lt; 32) | ino</code>. Before adding a file's size to the running total, check the map; skip if already seen, otherwise add. The map is local to one call, so each candidate's reported size is independent.</p>
+
+<table>
+  <thead><tr><th>Pros</th><th>Cons</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>
+        <ul>
+          <li>Each candidate's size becomes <em>self-consistent</em>: "if I were to follow the link count semantics, deleting this whole tree would free exactly this much."</li>
+          <li>Fixes the worst case (the 14× pnpm <code>node_modules</code> inflation).</li>
+          <li>Simple. ~15 lines added, no cross-call coordination, no cache complications.</li>
+          <li>Test is straightforward: build a tiny tree, hardlink one file twice, call <code>DirSize</code>, assert the size equals one copy.</li>
+        </ul>
+      </td>
+      <td>
+        <ul>
+          <li>Doesn't deduplicate <em>across</em> candidates. If the user selects both <code>node_modules</code> (now 280 MB) and <code>~/Library/pnpm/store</code> (1.8 GB), the aggregate says "you'll reclaim 2.08 GB", but deleting both actually frees ~1.8 GB (the store dominates).</li>
+          <li>Adds a small platform-specific block: reading <code>(dev, ino)</code> requires type-asserting <code>info.Sys()</code> to <code>*syscall.Stat_t</code>. Fine on macOS/Linux, but cements the macOS-only nature of the binary (which Hy2 will address separately anyway).</li>
+        </ul>
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Option B — per-scan inode dedup</h3>
+<p>One shared <code>map[uint64]struct{}</code> protected by a mutex, threaded through every <code>DirSize</code> call in a single <code>scan.Run</code>. First call to encounter an inode counts it; subsequent calls see it as already counted and skip. The reclaim numbers become honest about cross-candidate sharing.</p>
+
+<table>
+  <thead><tr><th>Pros</th><th>Cons</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>
+        <ul>
+          <li>The aggregate reclaim number is now truthful: "if you select all of these, you'll free X" matches reality.</li>
+          <li>Handles the pnpm case correctly end-to-end. The store and the project node_modules collectively report ~1.8 GB, not 5.2 GB.</li>
+        </ul>
+      </td>
+      <td>
+        <ul>
+          <li><strong>Order-dependent sizes.</strong> Whichever candidate gets walked first "claims" the shared inodes; later candidates report a fraction of what they'd report on their own. Walks run in parallel, so order isn't even deterministic — two scans of the same disk can yield different per-candidate sizes.</li>
+          <li>Per-candidate sizes become <em>misleading in isolation</em>. The user sees <code>node_modules: 12 MB</code> but the moment they untick the pnpm store candidate, the real reclaim from <code>node_modules</code> alone would be 280 MB. The number has no useful interpretation as a standalone value.</li>
+          <li>Interacts badly with the persistent size cache (<code>~/.config/spacestation/sizes.json</code>): cached values would depend on what else was scanned in the same session. Either we don't cache (slower) or the cache becomes incoherent.</li>
+          <li>Forces locking on a hot path. Every regular file requires a mutex acquire on the shared map. Modest but real perf cost.</li>
+        </ul>
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Option C — do nothing</h3>
+<p>Leave <code>DirSize</code> reporting "logical" sizes. Document the over-reporting in the README and the candidate detail pane. Smart probes already handle pnpm via <code>pnpm store prune</code>, which estimates reclaim from the tool itself; users who want accurate pnpm numbers should rely on that.</p>
+
+<table>
+  <thead><tr><th>Pros</th><th>Cons</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>
+        <ul>
+          <li>Zero code change. Zero risk.</li>
+          <li>For users without heavy hardlink trees (most non-pnpm, non-Time-Machine setups), the numbers are already correct.</li>
+        </ul>
+      </td>
+      <td>
+        <ul>
+          <li>The headline reclaim number stays misleading for anyone using pnpm, Time Machine local snapshots, or hardlink-based backups — exactly the audience that has the most to reclaim.</li>
+          <li>Trust erosion: when a user deletes 3.4 GB of <code>node_modules</code> and Finder only reports 280 MB freed, the tool looks broken.</li>
+          <li>The fix is small enough that "do nothing" is hard to defend.</li>
+        </ul>
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="recommendation">Recommendation</h2>
+
+<div class="recommendation">
+<h3>Option A — per-call inode dedup</h3>
+<p>This is the right scope for what spacestation is. Each candidate's number becomes <em>locally truthful</em>: "delete just this directory and you'll free this much." That's the question a user reasonably expects each row to answer. Aggregate across candidates is still approximate, but in the common case it's the worst offender (heavily-shared <code>node_modules</code>) being fixed individually that closes most of the gap.</p>
+<p>Why not Option B: the order-dependence is disqualifying. A scan result where <code>node_modules</code> reports "280 MB" or "12 MB" depending on which goroutine raced first is worse than the current honest-but-inflated number. The cache incoherence makes it worse still.</p>
+<p>Why not Option C: the bug is real and dramatic on the exact audience the tool is built for. The fix is ~15 lines of mechanical code plus a synthetic-tree test. Skipping it for "documented limitation" reasons would be cowardice.</p>
+</div>
+
+<p>Looking for: a thumbs-up on Option A, or a steer toward B/C.</p>
+
+</body>
+</html>

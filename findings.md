@@ -17,12 +17,6 @@ _(none open — see Resolved section at bottom)_
 
 ## HIGH — correctness bugs
 
-### H3. Hardlink double-counting in `DirSize`
-**File:** `internal/scan/size.go:28-53`
-**Verification:** confirmed. `info.Size()` is reported per name, not per inode. Hardlink-heavy trees (Time Machine local snapshots, pnpm CAS store, some `.cargo` caches) inflate by the link-count factor. For a CAS-style store this can be 2–10×.
-
-**Fix:** maintain `map[uint64]struct{}` of seen `(dev, ino)` inside the walk, gated by a small mutex (or per-walk so no sharing needed). Skip files whose inode was already counted.
-
 ### H5. Size-cache key ignores inode/device
 **File:** `internal/scan/sizecache.go:104-107`
 **Verification:** confirmed. Cache key is the path string only. Renaming a directory or remounting a different volume at the same path will hit-with-wrong-data if mtimes happen to match (cross-volume mtime equality is unlikely but not impossible; rename within a volume preserves mtime exactly).
@@ -237,6 +231,13 @@ Resolved (same commit as H1). `stageScanning`'s quit handler now calls `m.scanCa
 
 ### H7. `stageCleaning` swallows `ctrl+c`
 Resolved. `cleanup.Execute(ctx, …)`, `runCommand(parent, …)`, `trash.Move(ctx, …)`, `trash.Hard(ctx, …)`, and `emptyTrash(ctx, …)` all take a context now. The TUI's `executeClean` creates the context synchronously, stores `cleanCancel` on the model, and passes it into the Cmd goroutine. `stageCleaning` handles `esc`/`ctrl+c` (cancel and fall through to done view with partial results) and `q` (cancel and quit). `runCommand`'s timeout is derived from the parent ctx, so a cancel kills the in-flight subprocess via `exec.CommandContext`. The view hint advertises `esc cancel · q quit`, and flips to a "cancelling…" warning once the cancel has been issued. Test coverage for cleanup is deferred to Hy4.
+
+### H3. Hardlink double-counting in `DirSize`
+Resolved. `DirSize` now maintains a per-call `map[inodeKey]struct{}` (keyed by `(dev, ino)`) shared across walker goroutines under a small mutex. Files with `Nlink > 1` are looked up before their size is added; if the inode was already counted, the file's bytes are skipped. Files with `Nlink == 1` never consult the map, so the common case stays lock-free.
+
+Fixes the worst case (a pnpm `node_modules` where every shared file is hardlinked back to the CAS store reported `~14×` its actual on-disk size). `TestDirSizeDeduplicatesHardlinks` creates a file plus three hardlinks and asserts `DirSize` returns one copy's size, not four.
+
+Cross-candidate dedup (e.g. recognising that <code>node_modules</code> and <code>~/Library/pnpm/store</code> share inodes) is intentionally not done — see `docs/h3-hardlinks-decision.html` for the rationale.
 
 ### H4. Pad/truncate use `len()` (bytes), not display width
 Resolved. `truncatePath`, `padRight`, and `padLeft` now all live in `internal/tui/format.go` and operate on display width:

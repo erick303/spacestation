@@ -138,6 +138,30 @@ func TestDirSize(t *testing.T) {
 	}
 }
 
+func TestDirSizeDeduplicatesHardlinks(t *testing.T) {
+	dir := t.TempDir()
+
+	// One real 1 KB file, then 3 hardlinks pointing at the same inode.
+	src := filepath.Join(dir, "original")
+	content := make([]byte, 1024)
+	if err := os.WriteFile(src, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= 3; i++ {
+		link := filepath.Join(dir, "link"+itoa(i))
+		if err := os.Link(src, link); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Without dedup: 4 names × 1024 bytes = 4096. With dedup: 1024.
+	got := DirSize(context.Background(), dir, 2)
+	want := int64(1024)
+	if got != want {
+		t.Errorf("DirSize with 4 hardlinks to one inode = %d, want %d", got, want)
+	}
+}
+
 func TestDirSizeRespectsContext(t *testing.T) {
 	// Build a small tree. Cancellation is what matters, not how big.
 	dir := t.TempDir()
