@@ -39,7 +39,7 @@ func TestDefault(t *testing.T) {
 	if len(cfg.Scan.ProjectRoots) != 1 || cfg.Scan.ProjectRoots[0] != "~/projects" {
 		t.Errorf("Default Scan.ProjectRoots = %v, want [~/projects]", cfg.Scan.ProjectRoots)
 	}
-	if !cfg.Scan.IncludeFixedPaths || !cfg.Scan.IncludeDownloads || !cfg.Scan.IncludeTrash || !cfg.Scan.IncludeSystemCache {
+	if !cfg.Scan.IncludeFixedPaths || !cfg.Scan.IncludeDownloads || !cfg.Scan.IncludeTrash || !cfg.Scan.IncludeScreenshots {
 		t.Errorf("Default Scan booleans should all be true, got %+v", cfg.Scan)
 	}
 	// Selection defaults.
@@ -124,10 +124,11 @@ func TestMissingRoots(t *testing.T) {
 }
 
 func TestDetectProjectRoots(t *testing.T) {
-	// Empty home → no candidates exist → safe fallback.
+	// Empty home → no candidates exist → no roots seeded (no invented default
+	// that would trip the missing-root warning on first run).
 	t.Setenv("HOME", t.TempDir())
-	if got := detectProjectRoots(); len(got) != 1 || got[0] != "~/projects" {
-		t.Errorf("detectProjectRoots() with no dirs = %v, want [~/projects]", got)
+	if got := detectProjectRoots(); len(got) != 0 {
+		t.Errorf("detectProjectRoots() with no dirs = %v, want []", got)
 	}
 
 	// Create ~/dev and ~/code → both detected, in candidate order.

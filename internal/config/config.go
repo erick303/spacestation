@@ -19,11 +19,14 @@ type Config struct {
 }
 
 type ScanConfig struct {
-	ProjectRoots       []string `toml:"project_roots"`
+	ProjectRoots []string `toml:"project_roots"`
+	// DisabledLocations lists known fixed-location paths (in ~/-form) the user
+	// turned off in the setup screen; probeFixedPaths skips these. Empty means
+	// every known location is scanned.
+	DisabledLocations  []string `toml:"disabled_locations"`
 	IncludeFixedPaths  bool     `toml:"include_fixed_paths"`
 	IncludeDownloads   bool     `toml:"include_downloads"`
 	IncludeTrash       bool     `toml:"include_trash"`
-	IncludeSystemCache bool     `toml:"include_system_caches"`
 	IncludeScreenshots bool     `toml:"include_screenshots"`
 }
 
@@ -41,7 +44,6 @@ func Default() Config {
 			IncludeFixedPaths:  true,
 			IncludeDownloads:   true,
 			IncludeTrash:       true,
-			IncludeSystemCache: true,
 			IncludeScreenshots: true,
 		},
 		Selection: SelectionConfig{
@@ -61,38 +63,51 @@ func Path() (string, error) {
 	return filepath.Join(home, ".config", "spacestation", "config.toml"), nil
 }
 
-func Load() (Config, string, error) {
-	path, err := Path()
+// Load reads the config from disk. firstRun is true when no config file exists
+// yet: in that case cfg is the in-memory Default() and nothing is written. The
+// caller owns first-run handling (detection, onboarding) and persists the
+// result with Save, so all the first-run logic lives in one place rather than
+// being silently materialised here.
+func Load() (cfg Config, path string, firstRun bool, err error) {
+	path, err = Path()
 	if err != nil {
-		return Config{}, "", err
+		return Config{}, "", false, err
 	}
-	cfg := Default()
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		// First run: seed project_roots from whatever common dev-folder
-		// locations actually exist, so a user whose repos live in ~/dev or
-		// ~/Documents/Projects isn't silently handed an empty walk.
-		cfg.Scan.ProjectRoots = detectProjectRoots()
-		if werr := writeDefault(path, cfg); werr != nil {
-			return cfg, path, nil
-		}
-		return cfg, path, nil
+	cfg = Default()
+	data, rerr := os.ReadFile(path)
+	if errors.Is(rerr, os.ErrNotExist) {
+		return cfg, path, true, nil
 	}
-	if err != nil {
-		return cfg, path, err
+	if rerr != nil {
+		return cfg, path, false, rerr
 	}
-	if _, err := toml.Decode(string(data), &cfg); err != nil {
-		return cfg, path, err
+	if _, derr := toml.Decode(string(data), &cfg); derr != nil {
+		return cfg, path, false, derr
 	}
-	return cfg, path, nil
+	return cfg, path, false, nil
 }
 
-func writeDefault(path string, cfg Config) error {
+// Save writes cfg to the config path as commented TOML, creating the parent
+// directory if needed, and returns the path written.
+func Save(cfg Config) (string, error) {
+	path, err := Path()
+	if err != nil {
+		return "", err
+	}
+	return path, writeConfig(path, cfg)
+}
+
+func writeConfig(path string, cfg Config) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
 	return os.WriteFile(path, []byte(commented(cfg)), 0o644)
 }
+
+// DetectProjectRoots is the exported view of detectProjectRoots: the common
+// dev-folder locations that exist on disk, in ~/-form, used to seed the
+// first-run onboarding flow.
+func DetectProjectRoots() []string { return detectProjectRoots() }
 
 // configTmpl renders the config as TOML with an explanatory comment above every
 // key. The encoder can't emit comments, so we drive a template off the struct —
@@ -105,19 +120,20 @@ var configTmpl = template.Must(template.New("config").
 
 [scan]
 # Directories walked for project artifact dirs (node_modules, target, dist, …).
-# A leading "~" expands to your home directory. Seeded on first run from
-# whichever common locations exist (~/projects, ~/dev, ~/src, ~/code,
-# ~/Documents/Projects, …); point it at wherever your repos actually live.
-# Roots that don't exist are skipped with a warning, never an error.
+# A leading "~" expands to your home directory. The first-run setup screen seeds
+# this from detected dev folders (~/dev, ~/code, …); edit it here or with the e
+# key in the app. Roots that don't exist are skipped with a warning, never an error.
 project_roots = [{{range $i, $r := .Scan.ProjectRoots}}{{if $i}}, {{end}}{{quote $r}}{{end}}]
-# Probe well-known fixed locations (Xcode DerivedData, Docker, ~/.cargo, …).
+{{if .Scan.DisabledLocations}}# Known fixed locations (Xcode DerivedData, Docker, caches, …) you turned off in
+# the setup screen. Managed there; listed here so the choice survives a restart.
+disabled_locations = [{{range $i, $r := .Scan.DisabledLocations}}{{if $i}}, {{end}}{{quote $r}}{{end}}]
+{{end}}# Master switch for the known fixed locations. Individual ones are toggled in the
+# setup screen (the e key); set this false to skip all of them at once.
 include_fixed_paths = {{.Scan.IncludeFixedPaths}}
 # Include old, large files sitting in ~/Downloads.
 include_downloads = {{.Scan.IncludeDownloads}}
 # Include the contents of ~/.Trash.
 include_trash = {{.Scan.IncludeTrash}}
-# Include per-app system caches under ~/Library/Caches and ~/.cache.
-include_system_caches = {{.Scan.IncludeSystemCache}}
 # Include macOS screenshots in your configured screenshot location.
 include_screenshots = {{.Scan.IncludeScreenshots}}
 
@@ -190,8 +206,9 @@ var projectRootCandidates = []string{
 // detectProjectRoots returns the candidate project-root directories that exist
 // on disk, in ~/-form. Results are deduped via os.SameFile so a case-insensitive
 // volume doesn't report ~/projects and ~/Projects as two roots for one dir.
-// Falls back to ["~/projects"] when none exist, so the written config still has
-// a sensible, editable default.
+// Returns nil when none exist: we'd rather write an empty project_roots for the
+// user to fill in than seed a default that's absent on disk and immediately
+// trips the missing-root warning, complaining about a root they never chose.
 func detectProjectRoots() []string {
 	var (
 		found []string
@@ -214,9 +231,6 @@ func detectProjectRoots() []string {
 		}
 		infos = append(infos, fi)
 		found = append(found, cand)
-	}
-	if len(found) == 0 {
-		return []string{"~/projects"}
 	}
 	return found
 }

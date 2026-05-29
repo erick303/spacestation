@@ -44,7 +44,7 @@ func main() {
 		return
 	}
 
-	cfg, cfgPath, err := config.Load()
+	cfg, cfgPath, firstRun, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not load config (%v); using defaults\n", err)
 	}
@@ -52,6 +52,14 @@ func main() {
 	if *showConfig {
 		fmt.Println(cfgPath)
 		return
+	}
+
+	// First run: seed project_roots from detected dev folders. The interactive
+	// TUI onboarding lets the user adjust these and saves the result; the
+	// non-interactive (--json) path persists the seed below so the next run has
+	// a config to read.
+	if firstRun {
+		cfg.Scan.ProjectRoots = config.DetectProjectRoots()
 	}
 
 	if len(scanRoot) > 0 {
@@ -68,11 +76,16 @@ func main() {
 	}
 
 	if *jsonOut {
+		if firstRun {
+			if _, err := config.Save(cfg); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: could not write config: %v\n", err)
+			}
+		}
 		runJSON(cfg, *dryRun)
 		return
 	}
 
-	if err := tui.Run(cfg); err != nil {
+	if err := tui.Run(cfg, firstRun); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}

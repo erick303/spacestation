@@ -18,9 +18,10 @@ import (
 	"github.com/erick303/spacestation/internal/scan"
 )
 
-// Public entrypoint.
-func Run(cfg config.Config) error {
-	m := newModel(cfg)
+// Public entrypoint. firstRun starts the program in the onboarding settings
+// screen (no config on disk yet) instead of going straight to scanning.
+func Run(cfg config.Config, firstRun bool) error {
+	m := newModel(cfg, firstRun)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
@@ -35,6 +36,7 @@ const (
 	stageConfirm
 	stageCleaning
 	stageDone
+	stageSettings // first-run onboarding and mid-session config editing
 )
 
 // Row in the rendered list. Either a group header or a candidate.
@@ -122,6 +124,15 @@ type model struct {
 	// dashboard
 	dashboardOn bool
 	diskUsage   scan.DiskUsage
+
+	// settings / onboarding. settings holds the draft being edited; firstRun
+	// marks the onboarding entry (no config yet). settingsReturn is the stage
+	// to return to after the settings screen closes: stageBrowsing for a
+	// mid-session edit, stageScanning for first-run onboarding (which flows
+	// straight into the first scan on save).
+	settings       settingsModel
+	settingsReturn stage
+	firstRun       bool
 }
 
 // newSpinner builds the scan-progress spinner with the shared style. Used by
@@ -133,17 +144,25 @@ func newSpinner() spinner.Model {
 	return sp
 }
 
-func newModel(cfg config.Config) *model {
-	return &model{
+func newModel(cfg config.Config, firstRun bool) *model {
+	m := &model{
 		cfg:          cfg,
 		missingRoots: cfg.MissingRoots(),
 		stage:        stageScanning,
-		spinner:     newSpinner(),
-		scanStart:   time.Now(),
-		collapsed:   map[scan.Category]bool{},
-		progressCh:  make(chan scan.Progress, 64),
-		dashboardOn: true,
+		spinner:      newSpinner(),
+		scanStart:    time.Now(),
+		collapsed:    map[scan.Category]bool{},
+		progressCh:   make(chan scan.Progress, 64),
+		dashboardOn:  true,
+		firstRun:     firstRun,
 	}
+	if firstRun {
+		// Start in onboarding; saving there flows into the first scan.
+		m.stage = stageSettings
+		m.settingsReturn = stageScanning
+		m.settings = newSettings(cfg, true)
+	}
+	return m
 }
 
 // resetForRescan returns m to the just-started-a-scan state without
@@ -199,6 +218,10 @@ func (m *model) resetForRescan() {
 }
 
 func (m *model) Init() tea.Cmd {
+	if m.stage == stageSettings {
+		// Onboarding: wait for the user to finish setup before scanning.
+		return nil
+	}
 	return m.initWithPrev(nil, nil)
 }
 
@@ -300,6 +323,12 @@ func (m *model) pollTrashProgress() tea.Cmd {
 }
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// The settings screen owns every message (keys, cursor blink, resize) while
+	// it's open, so route there first.
+	if m.stage == stageSettings {
+		return m.updateSettings(msg)
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -379,6 +408,48 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
+}
+
+// updateSettings drives the onboarding/edit screen. On save it persists the
+// draft via config.Save and either starts the first scan (onboarding) or
+// returns to browsing (mid-session edit). On cancel it quits (onboarding) or
+// returns to browsing.
+func (m *model) updateSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if sz, ok := msg.(tea.WindowSizeMsg); ok {
+		m.width = sz.Width
+		m.height = sz.Height
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	var outcome settingsOutcome
+	m.settings, cmd, outcome = m.settings.update(msg)
+
+	switch outcome {
+	case settingsSaved:
+		m.cfg = m.settings.effectiveConfig()
+		if _, err := config.Save(m.cfg); err != nil {
+			m.setFlash("could not save config: " + err.Error())
+		}
+		m.missingRoots = m.cfg.MissingRoots()
+		if m.settingsReturn == stageBrowsing {
+			m.stage = stageBrowsing
+			m.setFlash("config saved — press r to rescan")
+			return m, nil
+		}
+		// Onboarding: flow straight into the first scan.
+		m.stage = stageScanning
+		m.scanStart = time.Now()
+		return m, m.initWithPrev(nil, nil)
+
+	case settingsCancelled:
+		if m.settingsReturn == stageBrowsing {
+			m.stage = stageBrowsing
+			return m, nil
+		}
+		return m, tea.Quit
+	}
+	return m, cmd
 }
 
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -472,6 +543,13 @@ func (m *model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "?":
 		m.helpVisible = true
+		return m, nil
+	case "e":
+		// Edit config. On save we return here; a rescan is manual (press r),
+		// since changed scan settings only take effect on the next scan.
+		m.settings = newSettings(m.cfg, false)
+		m.settingsReturn = stageBrowsing
+		m.stage = stageSettings
 		return m, nil
 	case "q", "ctrl+c":
 		return m, tea.Quit
@@ -920,6 +998,8 @@ func (m *model) View() string {
 		return m.viewCleaning()
 	case stageDone:
 		return m.viewDone()
+	case stageSettings:
+		return m.settings.view(m.width, m.height)
 	}
 	return ""
 }
@@ -942,6 +1022,7 @@ func (m *model) viewHelpOverlay() string {
 		{"x", "permanent Trash action (checked items, or empty all)"},
 		{"p", "preview file at cursor (Quick Look)"},
 		{"v", "toggle disk-usage dashboard"},
+		{"e", "edit settings / config"},
 		{"r", "rescan"},
 		{"?", "show / hide this help"},
 		{"q / ctrl+c", "quit"},
