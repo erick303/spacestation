@@ -1010,7 +1010,7 @@ func (m *model) viewBrowsing() string {
 	noticeLine := ""
 	if len(m.missingRoots) > 0 {
 		noticeLine = warnStyle.Render("  ⚠ project roots not found (skipped): " +
-			strings.Join(m.missingRoots, ", ") + " — edit project_roots via `spacestation --config`")
+			strings.Join(m.missingRoots, ", ") + " — set project_roots in the file shown by `spacestation --config`")
 	}
 
 	// detail pane has 3 lines (action, detail, safety+reason)

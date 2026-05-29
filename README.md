@@ -170,8 +170,8 @@ comments shown below explaining each key:
 ```toml
 [scan]
 # Directories walked for project artifact dirs (node_modules, target, dist, …).
-# A leading "~" expands to your home directory. On first run this is seeded
-# from whichever common locations exist (~/projects, ~/dev, ~/src, ~/code,
+# A leading "~" expands to your home directory. Seeded on first run from
+# whichever common locations exist (~/projects, ~/dev, ~/src, ~/code,
 # ~/Documents/Projects, …); point it at wherever your repos actually live.
 # Roots that don't exist are skipped with a warning, never an error.
 project_roots = ["~/projects"]

@@ -105,7 +105,10 @@ var configTmpl = template.Must(template.New("config").
 
 [scan]
 # Directories walked for project artifact dirs (node_modules, target, dist, …).
-# A leading "~" expands to your home directory.
+# A leading "~" expands to your home directory. Seeded on first run from
+# whichever common locations exist (~/projects, ~/dev, ~/src, ~/code,
+# ~/Documents/Projects, …); point it at wherever your repos actually live.
+# Roots that don't exist are skipped with a warning, never an error.
 project_roots = [{{range $i, $r := .Scan.ProjectRoots}}{{if $i}}, {{end}}{{quote $r}}{{end}}]
 # Probe well-known fixed locations (Xcode DerivedData, Docker, ~/.cargo, …).
 include_fixed_paths = {{.Scan.IncludeFixedPaths}}
@@ -168,7 +171,9 @@ func (c Config) ExpandedRoots() []string {
 func (c Config) MissingRoots() []string {
 	var missing []string
 	for _, r := range c.Scan.ProjectRoots {
-		if _, err := os.Stat(Expand(r)); err != nil {
+		// Only flag roots that genuinely don't exist — a root that exists but
+		// can't be stat'd (e.g. permission denied) isn't "not found".
+		if _, err := os.Stat(Expand(r)); errors.Is(err, os.ErrNotExist) {
 			missing = append(missing, r)
 		}
 	}
