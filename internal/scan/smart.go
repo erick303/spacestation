@@ -69,6 +69,9 @@ type dockerDFEntry struct {
 
 var reclaimableRe = regexp.MustCompile(`^([0-9.]+)\s*([A-Za-z]+)`)
 
+// brewSizeRe pulls the "(1.2GB)" size off a `brew cleanup --dry-run` line.
+var brewSizeRe = regexp.MustCompile(`\(([0-9.]+)\s*([A-Za-z]+)\)`)
+
 func parseDockerSize(s string) int64 {
 	m := reclaimableRe.FindStringSubmatch(s)
 	if len(m) < 3 {
@@ -137,9 +140,8 @@ func probeBrewSmart(ctx context.Context, emit func(Candidate)) {
 	}
 	// Lines look like: "Would remove: /path/to/file (1.2GB)"
 	var reclaim int64
-	sizeRe := regexp.MustCompile(`\(([0-9.]+)\s*([A-Za-z]+)\)`)
 	for _, line := range strings.Split(string(out), "\n") {
-		m := sizeRe.FindStringSubmatch(line)
+		m := brewSizeRe.FindStringSubmatch(line)
 		if len(m) == 3 {
 			reclaim += parseDockerSize(m[1] + m[2])
 		}
