@@ -35,7 +35,7 @@ func DirSize(ctx context.Context, root string, workers int) int64 {
 	if workers < 1 {
 		workers = 4
 	}
-	var total int64
+	var total atomic.Int64
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, workers)
 
@@ -93,12 +93,12 @@ func DirSize(ctx context.Context, root string, workers int) int64 {
 				seen[key] = struct{}{}
 				seenMu.Unlock()
 			}
-			atomic.AddInt64(&total, info.Size())
+			total.Add(info.Size())
 		}
 	}
 
 	wg.Add(1)
 	walk(root)
 	wg.Wait()
-	return atomic.LoadInt64(&total)
+	return total.Load()
 }

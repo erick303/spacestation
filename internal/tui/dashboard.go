@@ -16,11 +16,10 @@ const (
 	labelWidth  = 14 // visual indent for the "label    bar/text" pattern
 )
 
-// renderDashboard returns the read-only disk overview:
-//   1) macOS disk numbers — used (%), free, reclaimable
-//   2) macOS disk fullness bar (full width)
-//   3) Reclaim-mix stacked bar, colored per category
-//   4+) Per-category breakdown — wraps across as many lines as needed.
+// renderDashboard returns the read-only disk overview, top to bottom: the macOS
+// disk numbers (used %, free, reclaimable), the disk fullness bar (full width),
+// the reclaim-mix stacked bar colored per category, and the per-category
+// breakdown that wraps across as many lines as needed.
 //
 // width is the available terminal columns. Bars degrade gracefully when narrow.
 func renderDashboard(width int, du scan.DiskUsage, cands []scan.Candidate) string {
@@ -29,10 +28,7 @@ func renderDashboard(width int, du scan.DiskUsage, cands []scan.Candidate) strin
 	}
 	inner := width - len(leftPad) - rightMargin
 
-	barW := inner - labelWidth - 2 // ▕…▏
-	if barW < 20 {
-		barW = 20
-	}
+	barW := max(inner-labelWidth-2, 20) // ▕…▏
 
 	reclaimable := totalCandidateBytes(cands)
 
@@ -87,9 +83,10 @@ func sortedCategoryBytes(cands []scan.Candidate) []catBytes {
 }
 
 // renderDiskBar — three segments inside one bar:
-//   cyan  = used non-reclaimable
-//   green = used and reclaimable
-//   muted = free
+//
+//	cyan  = used non-reclaimable
+//	green = used and reclaimable
+//	muted = free
 func renderDiskBar(barWidth int, du scan.DiskUsage, reclaimable int64) string {
 	label := strings.Repeat(" ", labelWidth) // align under the disk-text row above
 	if du.Total <= 0 {
@@ -104,10 +101,7 @@ func renderDiskBar(barWidth int, du scan.DiskUsage, reclaimable int64) string {
 
 	cyanW := proportion(barWidth, usedNonRecl, du.Total)
 	greenW := proportion(barWidth, reclaimable, du.Total)
-	freeW := barWidth - cyanW - greenW
-	if freeW < 0 {
-		freeW = 0
-	}
+	freeW := max(barWidth-cyanW-greenW, 0)
 
 	cyanStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#7DCFFF"))
 	bar := cyanStyle.Render(strings.Repeat("█", cyanW)) +
@@ -165,10 +159,7 @@ func renderBreakdown(termWidth int, cands []scan.Candidate) string {
 	sep := mutedStyle.Render(" · ")
 	sepW := lipgloss.Width(sep) // ANSI-aware; will be 3 for " · ".
 
-	maxLineW := termWidth
-	if maxLineW < labelWidth+10 {
-		maxLineW = labelWidth + 10
-	}
+	maxLineW := max(termWidth, labelWidth+10)
 
 	var lines []string
 	var line strings.Builder
@@ -210,10 +201,5 @@ func proportion(width int, num, denom int64) int {
 	if denom <= 0 || width <= 0 {
 		return 0
 	}
-	v := int(int64(width) * num / denom)
-	if v < 0 {
-		v = 0
-	}
-	return v
+	return max(int(int64(width)*num/denom), 0)
 }
-

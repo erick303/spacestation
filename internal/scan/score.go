@@ -28,12 +28,9 @@ func applyScoring(cs []Candidate, cfg config.Config) {
 			c.Reason = "unknown age — not auto-selecting"
 			continue
 		}
-		age := now.Sub(c.LastTouched)
-		// Future mtime (clock skew, restored backup, NTP glitch) — clamp
-		// so the reason text doesn't render "(-5d)".
-		if age < 0 {
-			age = 0
-		}
+		// Future mtime (clock skew, restored backup, NTP glitch) — clamp so
+		// the reason text doesn't render "(-5d)".
+		age := max(now.Sub(c.LastTouched), 0)
 		ageDays := int(age / (24 * time.Hour))
 
 		switch {

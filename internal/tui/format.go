@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -117,8 +118,8 @@ func truncatePath(p string, max int) string {
 	rs := []rune(p)
 	cut := len(rs)
 	used := 0
-	for i := len(rs) - 1; i >= 0; i-- {
-		w := runewidth.RuneWidth(rs[i])
+	for i, r := range slices.Backward(rs) {
+		w := runewidth.RuneWidth(r)
 		if used+w > budget {
 			break
 		}

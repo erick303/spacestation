@@ -37,11 +37,9 @@ func probeSmart(ctx context.Context, _ config.Config, emit func(Candidate)) {
 			break
 		}
 		p := p
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			p(ctx, emit)
-		}()
+		})
 	}
 	wg.Wait()
 }
@@ -105,7 +103,7 @@ func probeDockerSmart(ctx context.Context, emit func(Candidate)) {
 		return
 	}
 	var reclaim int64
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
 		var e dockerDFEntry
 		if err := json.Unmarshal([]byte(line), &e); err != nil {
 			continue
@@ -140,7 +138,7 @@ func probeBrewSmart(ctx context.Context, emit func(Candidate)) {
 	}
 	// Lines look like: "Would remove: /path/to/file (1.2GB)"
 	var reclaim int64
-	for _, line := range strings.Split(string(out), "\n") {
+	for line := range strings.SplitSeq(string(out), "\n") {
 		m := brewSizeRe.FindStringSubmatch(line)
 		if len(m) == 3 {
 			reclaim += parseDockerSize(m[1] + m[2])

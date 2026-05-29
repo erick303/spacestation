@@ -38,9 +38,9 @@ const (
 
 // Row in the rendered list. Either a group header or a candidate.
 type row struct {
-	isHeader bool
-	cat      scan.Category
-	candIdx  int  // index into model.cands when !isHeader
+	isHeader  bool
+	cat       scan.Category
+	candIdx   int  // index into model.cands when !isHeader
 	collapsed bool // for headers
 }
 
@@ -64,26 +64,26 @@ type model struct {
 	// when it has fully returned (cands sent, size cache saved). A rescan
 	// must wait on the old scanFinished before starting the new scan, so
 	// that the global size cache isn't being mutated by two scans at once.
-	progressCh    chan scan.Progress
-	scanCancel    context.CancelFunc
-	scanFinished  chan struct{}
-	cands         []scan.Candidate
+	progressCh   chan scan.Progress
+	scanCancel   context.CancelFunc
+	scanFinished chan struct{}
+	cands        []scan.Candidate
 
 	// browsing state
-	rows        []row
-	cursor      int
-	collapsed   map[scan.Category]bool
-	width       int
-	height      int
-	flash       string
-	flashUntil  time.Time
+	rows       []row
+	cursor     int
+	collapsed  map[scan.Category]bool
+	width      int
+	height     int
+	flash      string
+	flashUntil time.Time
 
 	// cleaning state
-	cleanStart    time.Time
-	cleanElapsed  time.Duration
-	cleanResults  []cleanup.Result
-	cleanedBytes  int64
-	cleanCancel   context.CancelFunc
+	cleanStart     time.Time
+	cleanElapsed   time.Duration
+	cleanResults   []cleanup.Result
+	cleanedBytes   int64
+	cleanCancel    context.CancelFunc
 	cleanCancelled bool // set when user hit esc/ctrl+c during stageCleaning
 
 	// trash-removal action (the separate `x` flow, distinct from enter/clean)
@@ -1325,21 +1325,22 @@ func (m *model) viewDone() string {
 	if m.pendingTrash && m.trashEmptyAll && fail == 0 && m.trashDone > 0 {
 		items = m.trashDone
 	}
-	summary := fmt.Sprintf("  %s %s across %d items in %s",
+	var summary strings.Builder
+	fmt.Fprintf(&summary, "  %s %s across %d items in %s",
 		sizeStyle.Render(humanBytes(m.cleanedBytes)),
 		verb,
 		items,
 		m.cleanElapsed.Truncate(100*time.Millisecond),
 	)
 	if fail > 0 {
-		summary += "\n" + warnStyle.Render(fmt.Sprintf("  %d items failed:", fail))
+		summary.WriteString("\n" + warnStyle.Render(fmt.Sprintf("  %d items failed:", fail)))
 		for _, r := range m.cleanResults {
 			if r.Err != nil {
-				summary += "\n  " + mutedStyle.Render("• "+r.Candidate.DisplayTitle()+": "+r.Err.Error())
+				summary.WriteString("\n  " + mutedStyle.Render("• "+r.Candidate.DisplayTitle()+": "+r.Err.Error()))
 			}
 		}
 	}
-	return "\n" + title + "  ✓ done\n\n" + summary + "\n\n" + helpStyle.Render("r rescan   q quit")
+	return "\n" + title + "  ✓ done\n\n" + summary.String() + "\n\n" + helpStyle.Render("r rescan   q quit")
 }
 
 // helpers (padRight, padLeft live in format.go alongside truncatePath)

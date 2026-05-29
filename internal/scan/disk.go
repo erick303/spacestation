@@ -17,9 +17,6 @@ func GetDiskUsage(path string) DiskUsage {
 		return DiskUsage{}
 	}
 	total := int64(s.Bsize) * int64(s.Blocks)
-	free := int64(s.Bsize) * int64(s.Bavail)
-	if free > total {
-		free = total
-	}
+	free := min(int64(s.Bsize)*int64(s.Bavail), total)
 	return DiskUsage{Total: total, Free: free, Used: total - free}
 }

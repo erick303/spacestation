@@ -14,20 +14,21 @@ import (
 )
 
 // buildTree builds a synthetic project tree.
-//   /root
-//     /projA
-//       /src                       (regular file)
-//       /node_modules              (artifact, 100 bytes)
-//         /pkg/index.js
-//         /pkg/big.bin             (sentinel — must NOT be classified)
-//     /projB
-//       /.venv                     (artifact)
-//         /lib/file.py
-//       /target                    (artifact, classified Rust)
-//         /debug/exec
-//     /projC
-//       /.git                      (skipped)
-//       /src/index.ts
+//
+//	/root
+//	  /projA
+//	    /src                       (regular file)
+//	    /node_modules              (artifact, 100 bytes)
+//	      /pkg/index.js
+//	      /pkg/big.bin             (sentinel — must NOT be classified)
+//	  /projB
+//	    /.venv                     (artifact)
+//	      /lib/file.py
+//	    /target                    (artifact, classified Rust)
+//	      /debug/exec
+//	  /projC
+//	    /.git                      (skipped)
+//	    /src/index.ts
 func buildTree(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -208,12 +209,12 @@ func TestCachedDirSizeRespectsInode(t *testing.T) {
 func TestDirSizeRespectsContext(t *testing.T) {
 	// Build a small tree. Cancellation is what matters, not how big.
 	dir := t.TempDir()
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		sub := filepath.Join(dir, "d"+strconv.Itoa(i))
 		if err := os.MkdirAll(sub, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		for j := 0; j < 10; j++ {
+		for j := range 10 {
 			if err := os.WriteFile(filepath.Join(sub, "f"+strconv.Itoa(j)), []byte("x"), 0o644); err != nil {
 				t.Fatal(err)
 			}
@@ -262,4 +263,3 @@ func candsSummary(cs []Candidate) []string {
 	sort.Strings(out)
 	return out
 }
-

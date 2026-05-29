@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -43,10 +44,10 @@ func defaultFixedProbes() []fixedProbe {
 			detail: "Per-tvOS-version debug symbols. Re-downloaded when you connect a device.", expand: true},
 
 		{path: "~/Library/Caches/go-build", cat: CatGoCache, safety: SafetyRegenerable,
-			detail: "Go build cache. Recreated by `go build` / `go test`.",
+			detail:     "Go build cache. Recreated by `go build` / `go test`.",
 			replacedBy: []string{"go"}},
 		{path: "~/go/pkg/mod/cache", cat: CatGoCache, safety: SafetyRegenerable,
-			detail: "Go module download cache. Recreated by `go mod download`.",
+			detail:     "Go module download cache. Recreated by `go mod download`.",
 			replacedBy: []string{"go"}},
 
 		{path: "~/.cargo/registry", cat: CatRust, safety: SafetyRegenerable,
@@ -55,24 +56,24 @@ func defaultFixedProbes() []fixedProbe {
 			detail: "Cargo git checkouts. Recreated by cargo on next build."},
 
 		{path: "~/.npm/_cacache", cat: CatNodeModules, safety: SafetyRegenerable,
-			detail: "npm content-addressable cache. Recreated by `npm install`.",
+			detail:     "npm content-addressable cache. Recreated by `npm install`.",
 			replacedBy: []string{"npm"}},
 		{path: "~/.yarn/cache", cat: CatNodeModules, safety: SafetyRegenerable,
-			detail: "Yarn cache. Recreated by `yarn install`.",
+			detail:     "Yarn cache. Recreated by `yarn install`.",
 			replacedBy: []string{"yarn"}},
 		{path: "~/Library/pnpm/store", cat: CatNodeModules, safety: SafetyRegenerable,
-			detail: "pnpm store. Recreated by `pnpm install`.",
+			detail:     "pnpm store. Recreated by `pnpm install`.",
 			replacedBy: []string{"pnpm"}},
 
 		{path: "~/Library/Caches/Homebrew", cat: CatHomebrew, safety: SafetyRegenerable,
-			detail: "Homebrew downloaded bottles. Recreated on next `brew install`.",
+			detail:     "Homebrew downloaded bottles. Recreated on next `brew install`.",
 			replacedBy: []string{"brew"}},
 		{path: "~/Library/Caches/Homebrew/downloads", cat: CatHomebrew, safety: SafetyRegenerable,
-			detail: "Homebrew download cache. Safe to delete; brew will re-download as needed.",
+			detail:     "Homebrew download cache. Safe to delete; brew will re-download as needed.",
 			replacedBy: []string{"brew"}},
 
 		{path: "~/Library/Containers/com.docker.docker/Data/vms", cat: CatDocker, safety: SafetyUserContent,
-			detail: "Docker VM disk image(s). Deleting removes ALL Docker images/volumes/containers.",
+			detail:     "Docker VM disk image(s). Deleting removes ALL Docker images/volumes/containers.",
 			replacedBy: []string{"docker"}},
 		{path: "~/Library/Group Containers/group.com.docker", cat: CatDocker, safety: SafetyUserContent,
 			detail: "Docker group container data."},
@@ -128,23 +129,16 @@ func probeFixedPaths(ctx context.Context, cfg config.Config, workers int, emit f
 			continue
 		}
 		p := p
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			runFixedProbe(ctx, p, workers, claimed, emit)
-		}()
+		})
 	}
 	wg.Wait()
 }
 
 // hasAny reports whether any of the named tools is on PATH.
 func hasAny(tools []string) bool {
-	for _, t := range tools {
-		if has(t) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(tools, has)
 }
 
 func runFixedProbe(ctx context.Context, p fixedProbe, workers int, skip map[string]bool, emit func(Candidate)) {

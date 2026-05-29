@@ -71,54 +71,41 @@ func Run(ctx context.Context, opts Options, progress chan<- Progress) []Candidat
 	var topWG sync.WaitGroup
 
 	for _, root := range opts.Cfg.ExpandedRoots() {
-		root := root
-		topWG.Add(1)
-		go func() {
-			defer topWG.Done()
+		topWG.Go(func() {
 			sendProgress(Progress{Stage: "walking", Message: root})
 			walkProjects(ctx, root, opts.Workers, addCandidate)
-		}()
+		})
 	}
 
 	if opts.Cfg.Scan.IncludeFixedPaths {
-		topWG.Add(1)
-		go func() {
-			defer topWG.Done()
+		topWG.Go(func() {
 			sendProgress(Progress{Stage: "walking", Message: "fixed paths"})
 			probeFixedPaths(ctx, opts.Cfg, opts.Workers, addCandidate)
-		}()
-		topWG.Add(1)
-		go func() {
-			defer topWG.Done()
+		})
+		topWG.Go(func() {
 			sendProgress(Progress{Stage: "walking", Message: "ecosystem cleanups"})
 			probeSmart(ctx, opts.Cfg, addCandidate)
-		}()
+		})
 	}
 
 	if opts.Cfg.Scan.IncludeDownloads {
-		topWG.Add(1)
-		go func() {
-			defer topWG.Done()
+		topWG.Go(func() {
 			sendProgress(Progress{Stage: "walking", Message: "Downloads"})
 			probeDownloads(ctx, opts.Cfg, opts.Workers, addCandidate)
-		}()
+		})
 	}
 
 	if opts.Cfg.Scan.IncludeScreenshots {
-		topWG.Add(1)
-		go func() {
-			defer topWG.Done()
+		topWG.Go(func() {
 			sendProgress(Progress{Stage: "walking", Message: "Screenshots"})
 			probeScreenshots(ctx, opts.Cfg, addCandidate)
-		}()
+		})
 	}
 
 	if opts.Cfg.Scan.IncludeTrash {
-		topWG.Add(1)
-		go func() {
-			defer topWG.Done()
+		topWG.Go(func() {
 			probeTrash(ctx, opts.Workers, addCandidate)
-		}()
+		})
 	}
 
 	topWG.Wait()
