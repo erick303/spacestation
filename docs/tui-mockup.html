@@ -103,12 +103,12 @@
   <span class="cyan">▕███████████████████████████████████████████████████████████████████████</span><span class="good">██</span><span class="mut2">░░░░░░░░░░░░░░░░░▏</span>
 
   <span class="mut">╭──────────────────╮</span> <span class="mut">╭──────────────────╮</span> <span class="mut">╭──────────────────╮</span>
-  <span class="mut">│</span> <span class="mut">used</span>             <span class="mut">│</span> <span class="mut">│</span> <span class="mut">free</span>             <span class="mut">│</span> <span class="mut">│</span> <span class="mut">reclaimable</span>      <span class="mut">│</span>
+  <span class="mut">│</span> <span class="mut">Used</span>             <span class="mut">│</span> <span class="mut">│</span> <span class="mut">Free</span>             <span class="mut">│</span> <span class="mut">│</span> <span class="mut">Reclaimable</span>      <span class="mut">│</span>
   <span class="mut">│</span> <span class="cyan bold">375.67 GB</span>        <span class="mut">│</span> <span class="mut">│</span> <span class="bold">84.76 GB</span>         <span class="mut">│</span> <span class="mut">│</span> <span class="good bold">9.18 GB</span>          <span class="mut">│</span>
-  <span class="mut">│</span> <span class="mut">81% of disk</span>      <span class="mut">│</span> <span class="mut">│</span> <span class="mut">18% of disk</span>      <span class="mut">│</span> <span class="mut">│</span> <span class="mut">regenerable</span>      <span class="mut">│</span>
+  <span class="mut">│</span> <span class="mut">81% of disk</span>      <span class="mut">│</span> <span class="mut">│</span> <span class="mut">18% of disk</span>      <span class="mut">│</span> <span class="mut">│</span> <span class="mut">2% of disk</span>       <span class="mut">│</span>
   <span class="mut">╰──────────────────╯</span> <span class="mut">╰──────────────────╯</span> <span class="mut">╰──────────────────╯</span>
 
-  <span class="mut">reclaim mix</span>   <span class="sys">██████████████████████████████████████</span><span class="node">█████████████████████████</span><span class="go">██████████████</span><span class="js">████</span><span class="py">███</span><span class="docker">██</span><span class="rust">██</span><span class="brew">██</span>
+  <span class="mut">By Category</span>   <span class="sys">██████████████████████████████████████</span><span class="node">█████████████████████████</span><span class="go">██████████████</span><span class="js">████</span><span class="py">███</span><span class="docker">██</span><span class="rust">██</span><span class="brew">██</span>
   <span class="sys">System Cache 3.92 GB</span> <span class="mut">·</span> <span class="node">Node.js 2.56 GB</span> <span class="mut">·</span> <span class="go">Go Cache 1.43 GB</span> <span class="mut">·</span> <span class="js">JS Build 428 MB</span> <span class="mut">·</span> <span class="py">Python 317 MB</span> <span class="mut">· +4 more</span>
 </pre></div>
 <div class="caption">
@@ -118,7 +118,8 @@ not "macOS disk"; the headline numbers live in bordered <em>stat cards</em>
 and the segmented bar + cards are vertically aligned in fixed columns so nothing
 drifts. The <em>breakdown</em> line is now hard-capped to one row — it shows as many
 categories as fit, then "<span class="mut">+N more</span>" instead of wrapping into a
-ragged second line.
+ragged second line. The old "reclaim mix" label is now <span class="bold">By Category</span>,
+and the field labels are Title Case to match the <span class="bold">Macintosh HD</span> header.
 </div>
 
 <h2>Browsing — full layout, dashboard visible, item under cursor</h2>
@@ -129,12 +130,12 @@ ragged second line.
 <span class="cyan">▕██████████████████████████</span><span class="good">███████████</span><span class="mut2">░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▏</span>
 
 <span class="mut">╭──────────────────╮</span> <span class="mut">╭──────────────────╮</span> <span class="mut">╭──────────────────╮</span>
-<span class="mut">│</span> <span class="mut">used</span>             <span class="mut">│</span> <span class="mut">│</span> <span class="mut">free</span>             <span class="mut">│</span> <span class="mut">│</span> <span class="mut">reclaimable</span>      <span class="mut">│</span>
+<span class="mut">│</span> <span class="mut">Used</span>             <span class="mut">│</span> <span class="mut">│</span> <span class="mut">Free</span>             <span class="mut">│</span> <span class="mut">│</span> <span class="mut">Reclaimable</span>      <span class="mut">│</span>
 <span class="mut">│</span> <span class="cyan bold">412 GB</span>           <span class="mut">│</span> <span class="mut">│</span> <span class="bold">582 GB</span>           <span class="mut">│</span> <span class="mut">│</span> <span class="good bold">187 GB</span>           <span class="mut">│</span>
-<span class="mut">│</span> <span class="mut">41% of disk</span>      <span class="mut">│</span> <span class="mut">│</span> <span class="mut">59% of disk</span>      <span class="mut">│</span> <span class="mut">│</span> <span class="mut">regenerable</span>      <span class="mut">│</span>
+<span class="mut">│</span> <span class="mut">41% of disk</span>      <span class="mut">│</span> <span class="mut">│</span> <span class="mut">59% of disk</span>      <span class="mut">│</span> <span class="mut">│</span> <span class="mut">19% of disk</span>      <span class="mut">│</span>
 <span class="mut">╰──────────────────╯</span> <span class="mut">╰──────────────────╯</span> <span class="mut">╰──────────────────╯</span>
 
-<span class="mut">reclaim mix</span>   <span class="docker">██████████████████████████████████████</span><span class="node">█████████████████</span><span class="sys">█████████████</span><span class="js">█████</span><span class="go">████</span><span class="py">███</span><span class="brew">██</span><span class="rust">██</span>
+<span class="mut">By Category</span>   <span class="docker">██████████████████████████████████████</span><span class="node">█████████████████</span><span class="sys">█████████████</span><span class="js">█████</span><span class="go">████</span><span class="py">███</span><span class="brew">██</span><span class="rust">██</span>
 <span class="docker">Docker 88.0 GB</span> <span class="mut">·</span> <span class="node">Node 38.6 GB</span> <span class="mut">·</span> <span class="sys">Sys 29.6 GB</span> <span class="mut">·</span> <span class="js">JS Build 11.1 GB</span> <span class="mut">·</span> <span class="go">Go 8.2 GB</span> <span class="mut">· +4 more</span>
 
 <span class="acc">▼ Node.js</span>          <span class="good">· 5.59 GB cleaning (2/86 items)</span><span class="mut"> of 38.61 GB</span>
@@ -242,7 +243,7 @@ mount, not the generic "macOS disk". The segmented bar answers "is my disk full?
 at a glance (cyan&nbsp;= used, green&nbsp;= reclaimable, ░&nbsp;= free); the three
 <em>stat cards</em> below it carry the exact numbers in bordered widgets
 (<code>lipgloss.RoundedBorder()</code> + <code>JoinHorizontal</code>). The
-<em>reclaim mix</em> line is one stacked bar with per-category colors, and the
+<em>By Category</em> line is one stacked bar with per-category colors, and the
 breakdown is capped to a single row ("+N more" instead of wrapping) — no second
 per-category chart, since the grouped list below is already that view. The overlay
 is taller than the old 3-line version but every column is fixed-width, so nothing

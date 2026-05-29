@@ -969,12 +969,12 @@ func (m *model) viewBrowsing() string {
 	dashboardLines := 0
 	if m.dashboardOn {
 		dashboard = renderDashboard(width, m.diskUsage, m.cands)
-		// Count actual lines — breakdown wraps when many categories or narrow term.
+		// Count actual lines — the dashboard's height varies (cards, bars, blanks).
 		dashboardLines = strings.Count(dashboard, "\n") + 2 // self + blank below
 	}
 
 	// Account for everything that's NOT the list:
-	//   header(1) + blank(1) [+ dashboard(3) + blank(1)]
+	//   header(1) + blank(1) [+ dashboard(N) + blank(1)]
 	// + blank-before-detail(1) + detail(3)
 	// + blank-before-help(1) + helpStyle.PaddingTop(1) + help(2 lines)
 	// + flash(1 when present)

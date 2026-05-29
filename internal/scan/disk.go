@@ -7,6 +7,12 @@ type DiskUsage struct {
 	Total int64 // bytes
 	Free  int64 // bytes available to a non-superuser
 	Used  int64 // Total - Free
+
+	// VolumeName is the human-facing volume name (e.g. "Macintosh HD"), and
+	// FSType the uppercased filesystem type (e.g. "APFS"). Either may be empty
+	// when the platform can't supply it — callers must tolerate that.
+	VolumeName string
+	FSType     string
 }
 
 // GetDiskUsage returns capacity info for the filesystem containing `path`.
@@ -18,5 +24,7 @@ func GetDiskUsage(path string) DiskUsage {
 	}
 	total := int64(s.Bsize) * int64(s.Blocks)
 	free := min(int64(s.Bsize)*int64(s.Bavail), total)
-	return DiskUsage{Total: total, Free: free, Used: total - free}
+	du := DiskUsage{Total: total, Free: free, Used: total - free}
+	du.VolumeName, du.FSType = volumeInfo(path)
+	return du
 }
