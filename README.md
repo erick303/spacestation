@@ -60,15 +60,21 @@ spacestation does two things well:
 
 ## Install
 
-Requires Go 1.25+ (matches `go.mod` and CI).
+Requires Go 1.25+ and macOS (Apple Silicon or Intel).
+
+```sh
+go install github.com/erick303/spacestation@latest
+```
+
+Now `spacestation` is on your `$PATH` (assuming `~/go/bin` is in it).
+
+To build from a checkout instead:
 
 ```sh
 git clone https://github.com/erick303/spacestation
 cd spacestation
 go install .
 ```
-
-Now `spacestation` is on your `$PATH` (assuming `~/go/bin` is in it).
 
 ## Use
 
