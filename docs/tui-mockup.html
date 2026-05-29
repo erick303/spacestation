@@ -97,12 +97,45 @@
 
 <h1>spacestation — TUI mockup (with proposed dashboard)</h1>
 
+<h2>Dashboard — proposed redesign (the <code>v</code> overlay)</h2>
+<div class="term"><pre><span class="bold">Macintosh HD</span>  <span class="mut">· APFS (Encrypted) · 460.43 GB</span>                            <span class="mut">scanned in 7.5s</span>
+
+  <span class="cyan">▕███████████████████████████████████████████████████████████████████████</span><span class="good">██</span><span class="mut2">░░░░░░░░░░░░░░░░░▏</span>
+
+  <span class="mut">╭──────────────────╮</span> <span class="mut">╭──────────────────╮</span> <span class="mut">╭──────────────────╮</span>
+  <span class="mut">│</span> <span class="mut">used</span>             <span class="mut">│</span> <span class="mut">│</span> <span class="mut">free</span>             <span class="mut">│</span> <span class="mut">│</span> <span class="mut">reclaimable</span>      <span class="mut">│</span>
+  <span class="mut">│</span> <span class="cyan bold">375.67 GB</span>        <span class="mut">│</span> <span class="mut">│</span> <span class="bold">84.76 GB</span>         <span class="mut">│</span> <span class="mut">│</span> <span class="good bold">9.18 GB</span>          <span class="mut">│</span>
+  <span class="mut">│</span> <span class="mut">81% of disk</span>      <span class="mut">│</span> <span class="mut">│</span> <span class="mut">18% of disk</span>      <span class="mut">│</span> <span class="mut">│</span> <span class="mut">regenerable</span>      <span class="mut">│</span>
+  <span class="mut">╰──────────────────╯</span> <span class="mut">╰──────────────────╯</span> <span class="mut">╰──────────────────╯</span>
+
+  <span class="mut">reclaim mix</span>   <span class="sys">██████████████████████████████████████</span><span class="node">█████████████████████████</span><span class="go">██████████████</span><span class="js">████</span><span class="py">███</span><span class="docker">██</span><span class="rust">██</span><span class="brew">██</span>
+  <span class="sys">System Cache 3.92 GB</span> <span class="mut">·</span> <span class="node">Node.js 2.56 GB</span> <span class="mut">·</span> <span class="go">Go Cache 1.43 GB</span> <span class="mut">·</span> <span class="js">JS Build 428 MB</span> <span class="mut">·</span> <span class="py">Python 317 MB</span> <span class="mut">· +4 more</span>
+</pre></div>
+<div class="caption">
+Three things changed: the title is the real APFS volume name (<span class="bold">Macintosh HD</span>),
+not "macOS disk"; the headline numbers live in bordered <em>stat cards</em>
+(<code>lipgloss</code> rounded borders joined with <code>JoinHorizontal</code> — fully doable in Bubble Tea);
+and the segmented bar + cards are vertically aligned in fixed columns so nothing
+drifts. The <em>breakdown</em> line is now hard-capped to one row — it shows as many
+categories as fit, then "<span class="mut">+N more</span>" instead of wrapping into a
+ragged second line.
+</div>
+
 <h2>Browsing — full layout, dashboard visible, item under cursor</h2>
 <div class="term"><pre><span class="acc bold">spacestation</span>   <span class="acc bold">187.34 GB reclaimable</span>   <span class="mut">42.10 GB default-selected (308 / 515 items)</span>   <span class="mut">scanned in 5.7s</span>
 
-<span class="mut">macOS disk</span>   <span class="cyan">▕████████████</span><span class="good">███████████</span><span class="mut2">░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▏</span>   <span class="bold">412 / 994 GB used (41%)</span>  <span class="mut">·</span>  <span class="good bold">187 GB reclaimable</span> <span class="mut">(of that)</span>
-<span class="mut">reclaim mix</span>   <span class="docker">█████████████████</span><span class="node">████████</span><span class="sys">██████</span><span class="js">██</span><span class="go">██</span><span class="py">█</span><span class="brew">▌</span><span class="rust">▎</span><span class="xcode">·</span>
-<span class="mut">breakdown</span>     <span class="docker">Docker 88.0 GB</span> <span class="mut">·</span> <span class="node">Node 38.6 GB</span> <span class="mut">·</span> <span class="sys">Sys 29.6 GB</span> <span class="mut">·</span> <span class="js">JS Build 11.1 GB</span> <span class="mut">·</span> <span class="go">Go 8.2 GB</span> <span class="mut">·</span> <span class="py">Python 6.4 GB</span> <span class="mut">·</span> <span class="brew">Homebrew 2.4 GB</span> <span class="mut">·</span> <span class="rust">Rust 1.1 GB</span> <span class="mut">·</span> <span class="xcode">Xcode 840 MB</span>
+<span class="bold">Macintosh HD</span>  <span class="mut">· APFS (Encrypted) · 994 GB</span>
+
+<span class="cyan">▕██████████████████████████</span><span class="good">███████████</span><span class="mut2">░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▏</span>
+
+<span class="mut">╭──────────────────╮</span> <span class="mut">╭──────────────────╮</span> <span class="mut">╭──────────────────╮</span>
+<span class="mut">│</span> <span class="mut">used</span>             <span class="mut">│</span> <span class="mut">│</span> <span class="mut">free</span>             <span class="mut">│</span> <span class="mut">│</span> <span class="mut">reclaimable</span>      <span class="mut">│</span>
+<span class="mut">│</span> <span class="cyan bold">412 GB</span>           <span class="mut">│</span> <span class="mut">│</span> <span class="bold">582 GB</span>           <span class="mut">│</span> <span class="mut">│</span> <span class="good bold">187 GB</span>           <span class="mut">│</span>
+<span class="mut">│</span> <span class="mut">41% of disk</span>      <span class="mut">│</span> <span class="mut">│</span> <span class="mut">59% of disk</span>      <span class="mut">│</span> <span class="mut">│</span> <span class="mut">regenerable</span>      <span class="mut">│</span>
+<span class="mut">╰──────────────────╯</span> <span class="mut">╰──────────────────╯</span> <span class="mut">╰──────────────────╯</span>
+
+<span class="mut">reclaim mix</span>   <span class="docker">██████████████████████████████████████</span><span class="node">█████████████████</span><span class="sys">█████████████</span><span class="js">█████</span><span class="go">████</span><span class="py">███</span><span class="brew">██</span><span class="rust">██</span>
+<span class="docker">Docker 88.0 GB</span> <span class="mut">·</span> <span class="node">Node 38.6 GB</span> <span class="mut">·</span> <span class="sys">Sys 29.6 GB</span> <span class="mut">·</span> <span class="js">JS Build 11.1 GB</span> <span class="mut">·</span> <span class="go">Go 8.2 GB</span> <span class="mut">· +4 more</span>
 
 <span class="acc">▼ Node.js</span>          <span class="good">· 5.59 GB cleaning (2/86 items)</span><span class="mut"> of 38.61 GB</span>
    <span class="good">[x]</span> <span class="warn">⚡ </span>npm: cache clean                                  <span class="good">16.88 GB</span>   <span class="mut">2d ago</span>
@@ -203,11 +236,17 @@
 </pre></div>
 
 <p style="margin-top:30px; color:#565F89; font-size:12px; line-height:1.6">
-Notes on the proposed dashboard: <code style="color:#7AA2F7">v</code> toggles it. The
-<em>macOS disk</em> line answers "is my disk full?" with one bar; the
-<em>reclaim mix</em> line is one stacked bar with per-category colors and a tiny
-legend on the right — no second per-category chart, since the grouped list below
-is already that view. Dashboard takes 3 lines and you can dismiss it any time.
+Notes on the proposed dashboard: <code style="color:#7AA2F7">v</code> toggles it.
+The title is the real APFS volume name (<em>Macintosh HD</em>) read from the root
+mount, not the generic "macOS disk". The segmented bar answers "is my disk full?"
+at a glance (cyan&nbsp;= used, green&nbsp;= reclaimable, ░&nbsp;= free); the three
+<em>stat cards</em> below it carry the exact numbers in bordered widgets
+(<code>lipgloss.RoundedBorder()</code> + <code>JoinHorizontal</code>). The
+<em>reclaim mix</em> line is one stacked bar with per-category colors, and the
+breakdown is capped to a single row ("+N more" instead of wrapping) — no second
+per-category chart, since the grouped list below is already that view. The overlay
+is taller than the old 3-line version but every column is fixed-width, so nothing
+drifts as numbers change.
 </p>
 </div>
 </body>
