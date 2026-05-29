@@ -66,6 +66,26 @@ func totalCandidateBytes(cs []scan.Candidate) int64 {
 	return n
 }
 
+type catBytes struct {
+	cat   scan.Category
+	bytes int64
+}
+
+// sortedCategoryBytes groups candidates by category and returns the per-category
+// byte totals, largest first. Shared by the reclaim-mix bar and the breakdown.
+func sortedCategoryBytes(cands []scan.Candidate) []catBytes {
+	byCat := map[scan.Category]int64{}
+	for _, c := range cands {
+		byCat[c.Category] += c.SizeBytes
+	}
+	entries := make([]catBytes, 0, len(byCat))
+	for cat, b := range byCat {
+		entries = append(entries, catBytes{cat, b})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].bytes > entries[j].bytes })
+	return entries
+}
+
 // renderDiskBar — three segments inside one bar:
 //   cyan  = used non-reclaimable
 //   green = used and reclaimable
@@ -104,21 +124,8 @@ func renderReclaimBar(barWidth int, cands []scan.Candidate) string {
 		return label + mutedStyle.Render("(nothing reclaimable)")
 	}
 
-	type entry struct {
-		cat   scan.Category
-		bytes int64
-	}
-	byCat := map[scan.Category]int64{}
-	for _, c := range cands {
-		byCat[c.Category] += c.SizeBytes
-	}
-	entries := make([]entry, 0, len(byCat))
-	var total int64
-	for cat, b := range byCat {
-		entries = append(entries, entry{cat, b})
-		total += b
-	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].bytes > entries[j].bytes })
+	entries := sortedCategoryBytes(cands)
+	total := totalCandidateBytes(cands)
 
 	if total == 0 {
 		return label + mutedStyle.Render("(nothing reclaimable)")
@@ -153,19 +160,7 @@ func renderBreakdown(termWidth int, cands []scan.Candidate) string {
 	if len(cands) == 0 {
 		return leftPad + label + mutedStyle.Render("—")
 	}
-	type entry struct {
-		cat   scan.Category
-		bytes int64
-	}
-	byCat := map[scan.Category]int64{}
-	for _, c := range cands {
-		byCat[c.Category] += c.SizeBytes
-	}
-	entries := make([]entry, 0, len(byCat))
-	for cat, b := range byCat {
-		entries = append(entries, entry{cat, b})
-	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].bytes > entries[j].bytes })
+	entries := sortedCategoryBytes(cands)
 
 	sep := mutedStyle.Render(" · ")
 	sepW := lipgloss.Width(sep) // ANSI-aware; will be 3 for " · ".

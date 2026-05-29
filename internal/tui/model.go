@@ -120,15 +120,21 @@ type model struct {
 	diskUsage   scan.DiskUsage
 }
 
-func newModel(cfg config.Config, mode cleanup.Mode) *model {
+// newSpinner builds the scan-progress spinner with the shared style. Used by
+// both newModel and resetForRescan so the two stay in sync.
+func newSpinner() spinner.Model {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(colorAccent)
+	return sp
+}
+
+func newModel(cfg config.Config, mode cleanup.Mode) *model {
 	return &model{
 		cfg:         cfg,
 		deleteMode:  mode,
 		stage:       stageScanning,
-		spinner:     sp,
+		spinner:     newSpinner(),
 		scanStart:   time.Now(),
 		collapsed:   map[scan.Category]bool{},
 		progressCh:  make(chan scan.Progress, 64),
@@ -146,12 +152,8 @@ func newModel(cfg config.Config, mode cleanup.Mode) *model {
 // explicitly classified as "resets" or "persists" rather than zeroed by
 // accident.
 func (m *model) resetForRescan() {
-	sp := spinner.New()
-	sp.Spinner = spinner.Dot
-	sp.Style = lipgloss.NewStyle().Foreground(colorAccent)
-
 	m.stage = stageScanning
-	m.spinner = sp
+	m.spinner = newSpinner()
 	m.scanStart = time.Now()
 	m.scanElapsed = 0
 	m.progressMsg = ""
@@ -689,90 +691,66 @@ func (m *model) rebuildRows() {
 	}
 }
 
-func (m *model) countSelected() int {
-	n := 0
+// isCleanable reports whether c belongs to the move-to-Trash set: selected and
+// not itself a Trash item (Trash has its own `x` empty action).
+func isCleanable(c scan.Candidate) bool {
+	return c.Selected && c.Category != scan.CatTrash
+}
+
+// statsWhere returns the count and total bytes of candidates matching pred.
+// It's the single pass behind every count/bytes/group helper below.
+func (m *model) statsWhere(pred func(scan.Candidate) bool) (count int, bytes int64) {
 	for _, c := range m.cands {
-		if c.Selected {
-			n++
+		if pred(c) {
+			count++
+			bytes += c.SizeBytes
 		}
 	}
+	return
+}
+
+func (m *model) countSelected() int {
+	n, _ := m.statsWhere(func(c scan.Candidate) bool { return c.Selected })
 	return n
 }
 
 // countSelectedCleanable counts selected items eligible for the move-to-Trash
 // clean — i.e. everything except Trash items, which have their own `x` action.
 func (m *model) countSelectedCleanable() int {
-	n := 0
-	for _, c := range m.cands {
-		if c.Selected && c.Category != scan.CatTrash {
-			n++
-		}
-	}
+	n, _ := m.statsWhere(isCleanable)
 	return n
 }
 
 func (m *model) selectedBytes() int64 {
-	var n int64
-	for _, c := range m.cands {
-		if c.Selected {
-			n += c.SizeBytes
-		}
-	}
-	return n
+	_, b := m.statsWhere(func(c scan.Candidate) bool { return c.Selected })
+	return b
 }
 
 // trashTargetStats counts the Trash items the pending `x` action will remove:
 // all Trash items when trashEmptyAll, else the checked ones.
 func (m *model) trashTargetStats() (count int, bytes int64) {
-	for _, c := range m.cands {
-		if c.Category != scan.CatTrash {
-			continue
-		}
-		if m.trashEmptyAll || c.Selected {
-			count++
-			bytes += c.SizeBytes
-		}
-	}
-	return
+	return m.statsWhere(func(c scan.Candidate) bool {
+		return c.Category == scan.CatTrash && (m.trashEmptyAll || c.Selected)
+	})
 }
 
 // cleanableBytes is selectedBytes excluding Trash items (the move-to-Trash set).
 func (m *model) cleanableBytes() int64 {
-	var n int64
-	for _, c := range m.cands {
-		if c.Selected && c.Category != scan.CatTrash {
-			n += c.SizeBytes
-		}
-	}
-	return n
+	_, b := m.statsWhere(isCleanable)
+	return b
 }
 
 func (m *model) totalBytes() int64 {
-	var n int64
-	for _, c := range m.cands {
-		n += c.SizeBytes
-	}
-	return n
+	_, b := m.statsWhere(func(scan.Candidate) bool { return true })
+	return b
 }
 
 func (m *model) groupStats(cat scan.Category) (count int, bytes int64) {
-	for _, c := range m.cands {
-		if c.Category == cat {
-			count++
-			bytes += c.SizeBytes
-		}
-	}
-	return
+	return m.statsWhere(func(c scan.Candidate) bool { return c.Category == cat })
 }
 
 func (m *model) groupSelectedStats(cat scan.Category) (count int, bytes int64) {
-	for _, c := range m.cands {
-		if c.Category == cat && c.Selected {
-			count++
-			bytes += c.SizeBytes
-		}
-	}
-	return
+	return m.statsWhere(func(c scan.Candidate) bool { return c.Category == cat && c.Selected })
 }
 
 func (m *model) setFlash(s string) {
@@ -785,7 +763,7 @@ func (m *model) executeClean() tea.Cmd {
 	var bytes int64
 	for _, c := range m.cands {
 		// Trash items are excluded — they're handled by executeTrashClean.
-		if c.Selected && c.Category != scan.CatTrash {
+		if isCleanable(c) {
 			selected = append(selected, c)
 			bytes += c.SizeBytes
 		}
