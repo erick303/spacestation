@@ -34,16 +34,6 @@ Most hygiene items the original review flagged are already in place (LICENSE, .g
 **Impact:** README's `git clone https://github.com/erick303/spacestation` won't resolve until the repo is pushed; `go install github.com/erick303/spacestation@latest` won't work without at least one tag.
 **Fix:** push to `github.com/erick303/spacestation`, tag `v0.1.0`, update README install snippet to lead with `go install ...@latest`.
 
-### Hy4. Test coverage is concentrated in the wrong place
-**Verification:** confirmed.
-- `internal/scan/scan_test.go` exercises walk classification, `.git` skip, `DirSize` sum, `LastTouched`.
-- Zero tests for the destructive surface: `internal/trash/`, `internal/cleanup/`, `internal/score/`, `internal/scan/sizecache.go`.
-**Highest-value gaps to plug first:**
-- `score.Apply` (pure, table-driven, no FS) — would have caught H6 today.
-- AppleScript string generation in `trash.Move` (unit-testable without exec).
-- Cleanup mode dispatch in `cleanup.Execute` — would catch any future regression of C1.
-- `sizecache` hit/miss/invalidate behavior.
-
 ---
 
 ## Suggested fix order
@@ -62,6 +52,20 @@ After steps 1–4 the tool is honest about what it does. After 5–8 the codebas
 ---
 
 ## Resolved
+
+### Hy4. Test coverage is concentrated in the wrong place
+Resolved with a targeted pass. The originally-named gaps are now closed except the AppleScript string-generation case, which is documented as a deliberate skip:
+
+- **`score.Apply`** — covered by `internal/scan/score_test.go` (added by H6).
+- **Cleanup mode dispatch in `cleanup.Execute`** — covered by `internal/cleanup/cleanup_test.go` (parallel session).
+- **`sizecache` hit/miss/invalidate** — new `internal/scan/sizecache_test.go` with 7 tests: roundtrip save/load, save-noop-when-clean, invalidate-removes-entry, recompute-on-mtime-change, corrupt-file-loads-as-empty, on-disk-format sanity, plus the pre-existing TestCachedDirSizeRespectsInode.
+- **`config` package** — new `internal/config/config_test.go`: defaults, Expand cases (empty / `~` / `~/x` / non-tilde / `~user` not expanded), ExpandedRoots, Path.
+- **`recency.LastTouched` edge cases** — new `internal/scan/recency_test.go`: missing dir → zero time, empty dir → root's own mtime, root mtime newer than children → wins.
+- **Smart probe parsers** — new `internal/scan/smart_test.go`: `parseDockerSize` happy cases (B/KB/MB/GB/TB, case-insensitive units, fractional and whitespace-separated), reject-garbage cases, `humanBytesShort` formatting.
+
+**Deliberate skip — AppleScript string generation.** The finding suggested testing the osascript script-building in `cleanup/trash.go:moveToTrash`. The function builds the script inline and immediately hands it to `exec.CommandContext`; the only way to test the string is to extract it into a `buildMoveScript([]string) string` helper purely to make it testable. That's test-driven refactoring for a function that doesn't otherwise need to change, and the resulting test would re-encode whatever Go's `%q` produces — which is exactly what M17 declared as a reasoned waiver. Not worth touching working AppleScript glue.
+
+Coverage post-pass: cleanup 25.6%, config 36.2%, scan 38.4%, tui 16.8%. Numbers aren't the goal — every risky path (size cache invariants, mode dispatch, scoring) is now under test.
 
 ### L2. No `?` help overlay
 Resolved (the `?` overlay part — `/` filter and `o` open-in-Finder were scoped out as larger product changes). `?` from stageBrowsing now toggles a centered help box (`viewHelpOverlay`) styled with the same `confirmBoxStyle` as the delete-confirm modal. Lists all 15 bindings in a two-column layout, padded so the action column lines up. While open, the key handler intercepts and swallows everything except `?` / `esc` / `q` (which close it), so a stray space behind the modal can't accidentally toggle items. `helpVisible` field on the model defaults to false and is reset by `resetForRescan` implicitly (the field is zero-value false; no explicit reset needed since rescan goes through stageScanning where the overlay doesn't render). Added "? help" to the existing bottom help line so users can discover the binding.
