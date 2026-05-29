@@ -109,6 +109,42 @@ func TestExpandedRoots(t *testing.T) {
 	}
 }
 
+func TestMissingRoots(t *testing.T) {
+	dir := t.TempDir() // exists
+	cfg := Config{
+		Scan: ScanConfig{
+			ProjectRoots: []string{dir, "/no/such/path/here", filepath.Join(dir, "nope")},
+		},
+	}
+	got := cfg.MissingRoots()
+	want := []string{"/no/such/path/here", filepath.Join(dir, "nope")}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("MissingRoots() = %v, want %v", got, want)
+	}
+}
+
+func TestDetectProjectRoots(t *testing.T) {
+	// Empty home → no candidates exist → safe fallback.
+	t.Setenv("HOME", t.TempDir())
+	if got := detectProjectRoots(); len(got) != 1 || got[0] != "~/projects" {
+		t.Errorf("detectProjectRoots() with no dirs = %v, want [~/projects]", got)
+	}
+
+	// Create ~/dev and ~/code → both detected, in candidate order.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, sub := range []string{"code", "dev"} {
+		if err := os.MkdirAll(filepath.Join(home, sub), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", sub, err)
+		}
+	}
+	got := detectProjectRoots()
+	want := []string{"~/dev", "~/code"} // order follows projectRootCandidates
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("detectProjectRoots() = %v, want %v", got, want)
+	}
+}
+
 func TestPath(t *testing.T) {
 	got, err := Path()
 	if err != nil {

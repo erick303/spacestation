@@ -133,6 +133,12 @@ func versionString() string {
 }
 
 func runJSON(cfg config.Config, dry bool) {
+	// Missing roots are walked-then-skipped silently; warn on stderr so the
+	// JSON on stdout stays clean and parseable.
+	if missing := cfg.MissingRoots(); len(missing) > 0 {
+		fmt.Fprintf(os.Stderr, "warning: project roots not found (skipped): %s\n", strings.Join(missing, ", "))
+	}
+
 	cands := scan.Run(context.Background(), scan.Options{Cfg: cfg}, nil)
 	_ = scan.SaveSizeCache()
 

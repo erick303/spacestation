@@ -69,6 +69,10 @@ func Load() (Config, string, error) {
 	cfg := Default()
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
+		// First run: seed project_roots from whatever common dev-folder
+		// locations actually exist, so a user whose repos live in ~/dev or
+		// ~/Documents/Projects isn't silently handed an empty walk.
+		cfg.Scan.ProjectRoots = detectProjectRoots()
 		if werr := writeDefault(path, cfg); werr != nil {
 			return cfg, path, nil
 		}
@@ -155,6 +159,61 @@ func (c Config) ExpandedRoots() []string {
 		out = append(out, Expand(r))
 	}
 	return out
+}
+
+// MissingRoots returns the configured project roots (in their original
+// ~/-form) whose directory doesn't exist on disk. walkProjects silently
+// skips missing roots, so callers use this to warn the user that a configured
+// root contributed nothing to the scan.
+func (c Config) MissingRoots() []string {
+	var missing []string
+	for _, r := range c.Scan.ProjectRoots {
+		if _, err := os.Stat(Expand(r)); err != nil {
+			missing = append(missing, r)
+		}
+	}
+	return missing
+}
+
+// projectRootCandidates lists common places developers keep repos, roughly
+// ordered by likelihood. detectProjectRoots probes these on first run.
+var projectRootCandidates = []string{
+	"~/projects", "~/Projects", "~/dev", "~/Developer",
+	"~/src", "~/code", "~/repos", "~/Documents/Projects",
+}
+
+// detectProjectRoots returns the candidate project-root directories that exist
+// on disk, in ~/-form. Results are deduped via os.SameFile so a case-insensitive
+// volume doesn't report ~/projects and ~/Projects as two roots for one dir.
+// Falls back to ["~/projects"] when none exist, so the written config still has
+// a sensible, editable default.
+func detectProjectRoots() []string {
+	var (
+		found []string
+		infos []os.FileInfo
+	)
+	for _, cand := range projectRootCandidates {
+		fi, err := os.Stat(Expand(cand))
+		if err != nil || !fi.IsDir() {
+			continue
+		}
+		dup := false
+		for _, seen := range infos {
+			if os.SameFile(seen, fi) {
+				dup = true
+				break
+			}
+		}
+		if dup {
+			continue
+		}
+		infos = append(infos, fi)
+		found = append(found, cand)
+	}
+	if len(found) == 0 {
+		return []string{"~/projects"}
+	}
+	return found
 }
 
 // ScreenshotDir returns the directory macOS saves screenshots to. It reads the

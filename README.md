@@ -131,7 +131,8 @@ the regular path-based candidate is used instead.
 
 ### Path-based candidates (action: delete)
 
-Discovered by walking your configured project roots (default `~/projects`):
+Discovered by walking your configured project roots (auto-detected on first
+run from common dev-folder locations; see `project_roots` in [Config](#config)):
 
 `node_modules`, `.pnpm-store`, `.next`, `.nuxt`, `.turbo`, `.vite`,
 `.parcel-cache`, `dist`, `out`, `.venv`, `venv`, `.virtualenv`, `__pycache__`,
@@ -169,7 +170,10 @@ comments shown below explaining each key:
 ```toml
 [scan]
 # Directories walked for project artifact dirs (node_modules, target, dist, …).
-# A leading "~" expands to your home directory.
+# A leading "~" expands to your home directory. On first run this is seeded
+# from whichever common locations exist (~/projects, ~/dev, ~/src, ~/code,
+# ~/Documents/Projects, …); point it at wherever your repos actually live.
+# Roots that don't exist are skipped with a warning, never an error.
 project_roots = ["~/projects"]
 # Probe well-known fixed locations (Xcode DerivedData, Docker, ~/.cargo, …).
 include_fixed_paths = true

@@ -48,6 +48,10 @@ type row struct {
 type model struct {
 	cfg config.Config
 
+	// Configured project roots that don't exist on disk — walkProjects skips
+	// them silently, so we surface them in the browse view.
+	missingRoots []string
+
 	stage stage
 
 	// scanning state
@@ -131,8 +135,9 @@ func newSpinner() spinner.Model {
 
 func newModel(cfg config.Config) *model {
 	return &model{
-		cfg:         cfg,
-		stage:       stageScanning,
+		cfg:          cfg,
+		missingRoots: cfg.MissingRoots(),
+		stage:        stageScanning,
 		spinner:     newSpinner(),
 		scanStart:   time.Now(),
 		collapsed:   map[scan.Category]bool{},
@@ -142,7 +147,7 @@ func newModel(cfg config.Config) *model {
 }
 
 // resetForRescan returns m to the just-started-a-scan state without
-// touching user preferences. cfg, width/height, collapsed
+// touching user preferences. cfg, missingRoots, width/height, collapsed
 // group state, and dashboardOn all survive a rescan; everything else
 // (scan progress, browsing state, cleaning state, armed-toggle state)
 // is wiped.
@@ -1000,6 +1005,14 @@ func (m *model) viewBrowsing() string {
 		flashLine = warnStyle.Render("  ⚠ " + m.flash)
 	}
 
+	// Persistent notice: configured project roots that don't exist were
+	// skipped, so the user knows the scan didn't cover what they expected.
+	noticeLine := ""
+	if len(m.missingRoots) > 0 {
+		noticeLine = warnStyle.Render("  ⚠ project roots not found (skipped): " +
+			strings.Join(m.missingRoots, ", ") + " — edit project_roots via `spacestation --config`")
+	}
+
 	// detail pane has 3 lines (action, detail, safety+reason)
 	detail := m.renderDetail()
 
@@ -1020,6 +1033,9 @@ func (m *model) viewBrowsing() string {
 	if flashLine != "" {
 		reserved += 1
 	}
+	if noticeLine != "" {
+		reserved += 1
+	}
 	viewportHeight := max(m.height-reserved, 5)
 	listView := m.renderList(width, viewportHeight)
 
@@ -1028,6 +1044,9 @@ func (m *model) viewBrowsing() string {
 		parts = append(parts, dashboard, "")
 	}
 	parts = append(parts, listView, detail)
+	if noticeLine != "" {
+		parts = append(parts, noticeLine)
+	}
 	if flashLine != "" {
 		parts = append(parts, flashLine)
 	}
