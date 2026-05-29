@@ -6,9 +6,9 @@
 
 A developer-aware disk cleanup tool for macOS. Single Go binary, terminal UI, knows how each ecosystem cleans itself up.
 
-![spacestation TUI](docs/hero.png)
+![spacestation demo](docs/demo.gif)
 
-> Demo (animated): [`docs/demo.gif`](docs/demo.gif) — regenerate both with `vhs docs/demo.tape`.
+> Regenerate this demo with `vhs docs/demo.tape`.
 
 ```
 spacestation ──────────────────────────────────────  42.1 GB reclaimable
@@ -83,6 +83,7 @@ spacestation              # launches the TUI
 spacestation --json --dry-run | jq    # see what would be selected, no UI
 spacestation --hard       # delete instead of moving to Trash
 spacestation --config     # print config-file path
+spacestation --version    # print version and exit
 ```
 
 Keys inside the TUI:
@@ -93,14 +94,16 @@ Keys inside the TUI:
 | g / G          | jump to top / bottom (also home / end)       |
 | [ / ]          | jump to previous / next group header         |
 | pgup / pgdn    | page up / down                               |
-| space          | toggle current item (or whole group on a header) |
+| space          | toggle current item (or whole group on a header — two-press) |
 | a / u          | select / unselect all items in current group |
-| A / c          | select all / clear all                       |
+| A              | select all                                   |
+| c              | clear all (two-press to confirm)             |
 | tab            | collapse / expand group at cursor            |
 | enter          | open confirmation, then clean (move to Trash) |
 | x              | permanent Trash action — remove checked Trash items, or empty the whole Trash if none checked |
 | v              | toggle the disk-usage dashboard              |
 | r              | rescan                                       |
+| ?              | show / hide the keybindings help overlay     |
 | q / ctrl+c     | quit                                         |
 
 ## What it knows about
@@ -161,25 +164,38 @@ without picking individually:
 
 ## Config
 
-`~/.config/spacestation/config.toml` is auto-created on first run.
+`~/.config/spacestation/config.toml` is auto-created on first run, with the same
+comments shown below explaining each key:
 
 ```toml
 [scan]
+# Directories walked for project artifact dirs (node_modules, target, dist, …).
+# A leading "~" expands to your home directory.
 project_roots = ["~/projects"]
+# Probe well-known fixed locations (Xcode DerivedData, Docker, ~/.cargo, …).
 include_fixed_paths = true
+# Include old, large files sitting in ~/Downloads.
 include_downloads = true
+# Include the contents of ~/.Trash.
 include_trash = true
+# Include per-app system caches under ~/Library/Caches and ~/.cache.
 include_system_caches = true
+# Include macOS screenshots in your configured screenshot location.
 include_screenshots = true
 
 [selection]
+# Pre-select regenerable items untouched for at least this many days.
 default_select_min_age_days = 30
+# Only pre-select ~/Downloads items at least this old (days)…
 downloads_min_age_days = 90
+# …and at least this large (MB). Smaller downloads are listed but not pre-selected.
 downloads_min_size_mb = 100
+# Only pre-select screenshots at least this old (days).
 screenshots_min_age_days = 90
 
 [delete]
-mode = "trash"           # "trash" or "hard"
+# How "enter" cleans: "trash" moves to ~/.Trash (restorable), "hard" deletes permanently.
+mode = "trash"
 ```
 
 CLI flags override config: `--scan-root <path>` (repeatable),

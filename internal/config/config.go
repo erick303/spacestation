@@ -1,11 +1,14 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"text/template"
 
 	"github.com/BurntSushi/toml"
 )
@@ -90,12 +93,54 @@ func writeDefault(path string, cfg Config) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return toml.NewEncoder(f).Encode(cfg)
+	return os.WriteFile(path, []byte(commented(cfg)), 0o644)
+}
+
+// configTmpl renders the config as TOML with an explanatory comment above every
+// key. The encoder can't emit comments, so we drive a template off the struct —
+// values stay bound to cfg (never drifting from Default()) while the prose is
+// fixed. `quote` produces a TOML-safe double-quoted string.
+var configTmpl = template.Must(template.New("config").
+	Funcs(template.FuncMap{"quote": strconv.Quote}).
+	Parse(`# spacestation configuration.
+# Auto-created on first run — edit freely. CLI flags override these values.
+
+[scan]
+# Directories walked for project artifact dirs (node_modules, target, dist, …).
+# A leading "~" expands to your home directory.
+project_roots = [{{range $i, $r := .Scan.ProjectRoots}}{{if $i}}, {{end}}{{quote $r}}{{end}}]
+# Probe well-known fixed locations (Xcode DerivedData, Docker, ~/.cargo, …).
+include_fixed_paths = {{.Scan.IncludeFixedPaths}}
+# Include old, large files sitting in ~/Downloads.
+include_downloads = {{.Scan.IncludeDownloads}}
+# Include the contents of ~/.Trash.
+include_trash = {{.Scan.IncludeTrash}}
+# Include per-app system caches under ~/Library/Caches and ~/.cache.
+include_system_caches = {{.Scan.IncludeSystemCache}}
+# Include macOS screenshots in your configured screenshot location.
+include_screenshots = {{.Scan.IncludeScreenshots}}
+
+[selection]
+# Pre-select regenerable items untouched for at least this many days.
+default_select_min_age_days = {{.Selection.DefaultSelectMinAgeDays}}
+# Only pre-select ~/Downloads items at least this old (days)…
+downloads_min_age_days = {{.Selection.DownloadsMinAgeDays}}
+# …and at least this large (MB). Smaller downloads are listed but not pre-selected.
+downloads_min_size_mb = {{.Selection.DownloadsMinSizeMB}}
+# Only pre-select screenshots at least this old (days).
+screenshots_min_age_days = {{.Selection.ScreenshotsMinAgeDays}}
+
+[delete]
+# How "enter" cleans: "trash" moves to ~/.Trash (restorable), "hard" deletes permanently.
+mode = {{quote .Delete.Mode}}
+`))
+
+// commented renders cfg as commented TOML via configTmpl.
+func commented(cfg Config) string {
+	var b bytes.Buffer
+	// The template and cfg shape are both fixed, so Execute cannot fail here.
+	_ = configTmpl.Execute(&b, cfg)
+	return b.String()
 }
 
 // Expand replaces a leading "~" with the user's home dir.

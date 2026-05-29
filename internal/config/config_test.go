@@ -3,9 +3,35 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/BurntSushi/toml"
 )
+
+// TestCommented guards the hand-written commented template against drift: the
+// generated file must carry comments yet still decode back to the exact config
+// it was rendered from.
+func TestCommented(t *testing.T) {
+	def := Default()
+	out := commented(def)
+
+	if !strings.Contains(out, "# spacestation configuration.") {
+		t.Errorf("commented() output missing header comment:\n%s", out)
+	}
+	if !strings.Contains(out, `project_roots = ["~/projects"]`) {
+		t.Errorf("commented() output missing expected project_roots line:\n%s", out)
+	}
+
+	var got Config
+	if _, err := toml.Decode(out, &got); err != nil {
+		t.Fatalf("commented() output does not decode: %v\n%s", err, out)
+	}
+	if !reflect.DeepEqual(got, def) {
+		t.Errorf("commented() round-trip mismatch:\n got %+v\nwant %+v", got, def)
+	}
+}
 
 func TestDefault(t *testing.T) {
 	cfg := Default()
