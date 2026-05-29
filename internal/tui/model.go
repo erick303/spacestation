@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -369,6 +370,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cleanElapsed = msg.elapsed
 		m.stage = stageDone
 		return m, nil
+
+	case previewClosedMsg:
+		// The Quick Look panel closed; it owns its own window, nothing to do.
+		return m, nil
 	}
 	return m, nil
 }
@@ -565,8 +570,43 @@ func (m *model) handleBrowseKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.initWithPrev(prevCancel, prevFinished)
 	case "v":
 		m.dashboardOn = !m.dashboardOn
+	case "p":
+		return m.previewAtCursor()
 	}
 	return m, nil
+}
+
+// previewAtCursor opens the file under the cursor in macOS Quick Look, or
+// flashes a reason when it can't (header row, folder, cleanup-command row,
+// missing file, unsupported type, or non-macOS build).
+func (m *model) previewAtCursor() (tea.Model, tea.Cmd) {
+	if !previewSupported() {
+		m.setFlash("Preview (Quick Look) is only available on macOS.")
+		return m, nil
+	}
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
+		return m, nil
+	}
+	r := m.rows[m.cursor]
+	if r.isHeader {
+		m.setFlash("Nothing to preview here.")
+		return m, nil
+	}
+	cand := m.cands[r.candIdx]
+	if msg, rejected := previewRejection(cand); rejected {
+		m.setFlash(msg)
+		return m, nil
+	}
+	info, err := os.Stat(cand.Path)
+	switch {
+	case err != nil:
+		m.setFlash("File no longer exists — rescan with r.")
+		return m, nil
+	case info.IsDir():
+		m.setFlash("Can't preview a folder.")
+		return m, nil
+	}
+	return m, previewCmd(cand.Path)
 }
 
 func (m *model) toggleCurrent() {
@@ -898,6 +938,7 @@ func (m *model) viewHelpOverlay() string {
 		{"tab", "collapse / expand group at cursor"},
 		{"enter", "open confirmation, then clean (move to Trash)"},
 		{"x", "permanent Trash action (checked items, or empty all)"},
+		{"p", "preview file at cursor (Quick Look)"},
 		{"v", "toggle disk-usage dashboard"},
 		{"r", "rescan"},
 		{"?", "show / hide this help"},
@@ -954,7 +995,7 @@ func (m *model) viewBrowsing() string {
 
 	// Two compact help lines so they never wrap unpredictably on narrow terms.
 	helpLine1 := "space toggle  a select-group  u clear-group  A select-all  c clear"
-	helpLine2 := "tab collapse  [ / ] prev/next group  v dashboard  enter clean  x empty/remove trash  r rescan  ? help  q quit"
+	helpLine2 := "tab collapse  [ / ] prev/next group  p preview  v dashboard  enter clean  x empty/remove trash  r rescan  ? help  q quit"
 	help := helpStyle.Render(helpLine1 + "\n" + helpLine2)
 
 	flashLine := ""
