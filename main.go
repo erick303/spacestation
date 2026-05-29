@@ -10,7 +10,6 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/erick303/spacestation/internal/cleanup"
 	"github.com/erick303/spacestation/internal/config"
 	"github.com/erick303/spacestation/internal/scan"
 	"github.com/erick303/spacestation/internal/tui"
@@ -30,7 +29,6 @@ func main() {
 	var (
 		jsonOut     = flag.Bool("json", false, "non-interactive: print candidates as JSON and exit")
 		dryRun      = flag.Bool("dry-run", false, "with --json, print what would be deleted (default-selected only)")
-		hardDelete  = flag.Bool("hard", false, "permanently delete instead of moving to Trash")
 		noDownloads = flag.Bool("no-downloads", false, "skip ~/Downloads")
 		noTrash     = flag.Bool("no-trash", false, "skip ~/.Trash")
 		noScreens   = flag.Bool("no-screenshots", false, "skip macOS screenshots (Desktop / configured location)")
@@ -70,15 +68,11 @@ func main() {
 	}
 
 	if *jsonOut {
-		runJSON(cfg, *hardDelete, *dryRun)
+		runJSON(cfg, *dryRun)
 		return
 	}
 
-	mode := cleanup.ModeTrash
-	if *hardDelete || cfg.Delete.Mode == "hard" {
-		mode = cleanup.ModeHard
-	}
-	if err := tui.Run(cfg, mode); err != nil {
+	if err := tui.Run(cfg); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
@@ -138,7 +132,7 @@ func versionString() string {
 	return "spacestation " + version + detail
 }
 
-func runJSON(cfg config.Config, hard, dry bool) {
+func runJSON(cfg config.Config, dry bool) {
 	cands := scan.Run(context.Background(), scan.Options{Cfg: cfg}, nil)
 	_ = scan.SaveSizeCache()
 
@@ -162,9 +156,8 @@ func runJSON(cfg config.Config, hard, dry bool) {
 	// Non-dry --json: print full report. We don't auto-delete in --json mode.
 	out := struct {
 		Candidates []scan.Candidate `json:"candidates"`
-		HardMode   bool             `json:"hard_mode"`
 		Note       string           `json:"note"`
-	}{Candidates: cands, HardMode: hard,
+	}{Candidates: cands,
 		Note: "JSON mode never deletes. Run interactively or pass --dry-run for what-would-be-selected.",
 	}
 	_ = json.NewEncoder(os.Stdout).Encode(out)

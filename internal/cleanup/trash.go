@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"sync"
 )
 
 // moveToTrash sends each path to the macOS Trash via Finder (single batched
@@ -52,44 +51,5 @@ func moveToTrash(ctx context.Context, paths []string) []error {
 			errs[i] = fmt.Errorf("path still exists after trash: %s", p)
 		}
 	}
-	return errs
-}
-
-// hardDelete removes paths recursively with os.RemoveAll, parallelized
-// across a small worker pool. Use only when the user explicitly asked for
-// --hard or the trash path failed.
-//
-// Cancellation: workers check ctx before calling os.RemoveAll, so paths not
-// yet started are skipped with the cancel error. An in-flight RemoveAll on
-// a particular path runs to completion (os.RemoveAll is not context-aware).
-func hardDelete(ctx context.Context, paths []string, workers int) []error {
-	if workers < 1 {
-		workers = 4
-	}
-	errs := make([]error, len(paths))
-
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, workers)
-	for i, p := range paths {
-		if ctx.Err() != nil {
-			errs[i] = ctx.Err()
-			continue
-		}
-		i, p := i, p
-		wg.Add(1)
-		sem <- struct{}{}
-		go func() {
-			defer wg.Done()
-			defer func() { <-sem }()
-			if err := ctx.Err(); err != nil {
-				errs[i] = err
-				return
-			}
-			if err := os.RemoveAll(p); err != nil {
-				errs[i] = err
-			}
-		}()
-	}
-	wg.Wait()
 	return errs
 }

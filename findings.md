@@ -47,7 +47,7 @@ Most hygiene items the original review flagged are already in place (LICENSE, .g
 7. **M1 + M2** — fold `score` into `scan`, `trash` into `cleanup`. Mechanical refactor; net simpler.
 8. **Hy1 + Hy2 + Hy4** — push remote + tag + macOS build constraints + fill the highest-value test gaps.
 
-After steps 1–4 the tool is honest about what it does. After 5–8 the codebase is easier to extend and ready to share.
+After steps 1–4 the tool's behavior matches what it claims to do. After 5–8 the codebase is easier to extend and ready to share.
 
 ---
 
@@ -71,7 +71,7 @@ Coverage post-pass: cleanup 25.6%, config 36.2%, scan 38.4%, tui 16.8%. Numbers 
 Resolved (the `?` overlay part — `/` filter and `o` open-in-Finder were scoped out as larger product changes). `?` from stageBrowsing now toggles a centered help box (`viewHelpOverlay`) styled with the same `confirmBoxStyle` as the delete-confirm modal. Lists all 15 bindings in a two-column layout, padded so the action column lines up. While open, the key handler intercepts and swallows everything except `?` / `esc` / `q` (which close it), so a stray space behind the modal can't accidentally toggle items. `helpVisible` field on the model defaults to false and is reset by `resetForRescan` implicitly (the field is zero-value false; no explicit reset needed since rescan goes through stageScanning where the overlay doesn't render). Added "? help" to the existing bottom help line so users can discover the binding.
 
 ### M9. Mockup-vs-delivered: cleaning UI is one spinner
-Deferred to post-v0.1.0 as a known limitation, not closed via code. The mockup's per-step progress bar / live command output / per-batch checkmarks is a real product feature, not a finding-sized fix — `cleanup.Execute` would need to stream results via a channel and the TUI would need to subscribe. The current single-spinner UI is honest about what it does and the cancel path (H7) gives the user a way out if a `docker system prune` runs long. Recording the gap rather than closing as Won't Fix because it remains worth doing later.
+Deferred to post-v0.1.0 as a known limitation, not closed via code. The mockup's per-step progress bar / live command output / per-batch checkmarks is a real product feature, not a finding-sized fix — `cleanup.Execute` would need to stream results via a channel and the TUI would need to subscribe. The current single-spinner UI accurately reflects what it does and the cancel path (H7) gives the user a way out if a `docker system prune` runs long. Recording the gap rather than closing as Won't Fix because it remains worth doing later.
 
 ### M11. `probeBrewSmart` regex recompile + redundant split-concat-split
 Won't fix. The "fix" is to lift `sizeRe` to package scope and rename `parseDockerSize` so it takes pre-split `(num, unit)` arguments. Real cost is one `regexp.Compile` per `brew cleanup --dry-run` call (which itself takes seconds), and a string concat that's immediately re-split — measurably zero. Closing as a reasoned waiver to avoid touching working parser code for negligible benefit; the ugliness is local and not on any hot path.

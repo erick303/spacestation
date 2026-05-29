@@ -52,10 +52,6 @@ func TestDefault(t *testing.T) {
 	if cfg.Selection.DownloadsMinSizeMB != 100 {
 		t.Errorf("Default Selection.DownloadsMinSizeMB = %d, want 100", cfg.Selection.DownloadsMinSizeMB)
 	}
-	// Delete defaults to Trash mode — the safer of the two.
-	if cfg.Delete.Mode != "trash" {
-		t.Errorf("Default Delete.Mode = %q, want %q", cfg.Delete.Mode, "trash")
-	}
 }
 
 func TestExpand(t *testing.T) {

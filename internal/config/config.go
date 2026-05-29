@@ -16,7 +16,6 @@ import (
 type Config struct {
 	Scan      ScanConfig      `toml:"scan"`
 	Selection SelectionConfig `toml:"selection"`
-	Delete    DeleteConfig    `toml:"delete"`
 }
 
 type ScanConfig struct {
@@ -35,10 +34,6 @@ type SelectionConfig struct {
 	ScreenshotsMinAgeDays   int   `toml:"screenshots_min_age_days"`
 }
 
-type DeleteConfig struct {
-	Mode string `toml:"mode"` // "trash" | "hard"
-}
-
 func Default() Config {
 	return Config{
 		Scan: ScanConfig{
@@ -55,7 +50,6 @@ func Default() Config {
 			DownloadsMinSizeMB:      100,
 			ScreenshotsMinAgeDays:   90,
 		},
-		Delete: DeleteConfig{Mode: "trash"},
 	}
 }
 
@@ -129,10 +123,6 @@ downloads_min_age_days = {{.Selection.DownloadsMinAgeDays}}
 downloads_min_size_mb = {{.Selection.DownloadsMinSizeMB}}
 # Only pre-select screenshots at least this old (days).
 screenshots_min_age_days = {{.Selection.ScreenshotsMinAgeDays}}
-
-[delete]
-# How "enter" cleans: "trash" moves to ~/.Trash (restorable), "hard" deletes permanently.
-mode = {{quote .Delete.Mode}}
 `))
 
 // commented renders cfg as commented TOML via configTmpl.

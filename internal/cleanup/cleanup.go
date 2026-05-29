@@ -20,33 +20,25 @@ type Result struct {
 	Err       error
 }
 
-// Mode controls how delete-action candidates are removed.
-type Mode int
-
-const (
-	ModeTrash Mode = iota // move to ~/.Trash via Finder
-	ModeHard              // rm -rf
-)
-
 // Execute runs the right cleanup for each candidate:
-//   - ActionDelete: batched move-to-Trash (or hard delete if mode == ModeHard).
+//   - ActionDelete: batched move-to-Trash.
 //   - ActionCommand: run the ecosystem's cleanup tool with a hard timeout.
 //
 // Returns one Result per input candidate, in input order.
 //
 // Cancellation: if `ctx` is cancelled mid-run, the currently-running
 // subprocess is killed (via exec.CommandContext) and remaining items are
-// marked with the cancellation error. The Trash batch and Hard workers
-// also observe ctx between paths.
-func Execute(ctx context.Context, cands []scan.Candidate, mode Mode) []Result {
+// marked with the cancellation error. The Trash batch also observes ctx
+// between paths.
+func Execute(ctx context.Context, cands []scan.Candidate) []Result {
 	results := make([]Result, len(cands))
 	for i, c := range cands {
 		results[i] = Result{Candidate: c}
 	}
 
 	// Group delete actions for batched osascript. The Trash candidate is
-	// special-cased — you can't "move ~/.Trash to the Trash", so we empty its
-	// contents with RemoveAll regardless of mode.
+	// special-cased — you can't "move ~/.Trash to the Trash", so it's handled
+	// by the separate empty/remove action instead.
 	var deletePaths []string
 	var deleteIdx []int
 	for i, c := range cands {
@@ -65,15 +57,9 @@ func Execute(ctx context.Context, cands []scan.Candidate, mode Mode) []Result {
 	}
 
 	if len(deletePaths) > 0 && ctx.Err() == nil {
-		var delErrs []error
-		if mode == ModeHard {
-			delErrs = hardDelete(ctx, deletePaths, 8)
-		} else {
-			// Trash mode is honest: per-path failures stay failures.
-			// The confirm hint promises Trash, so we never escalate to
-			// RemoveAll. If the user wants that, they re-run with --hard.
-			delErrs = moveToTrash(ctx, deletePaths)
-		}
+		// Per-path failures stay failures. The confirm hint promises Trash,
+		// so we never escalate to RemoveAll.
+		delErrs := moveToTrash(ctx, deletePaths)
 		for j, err := range delErrs {
 			results[deleteIdx[j]].Err = err
 		}

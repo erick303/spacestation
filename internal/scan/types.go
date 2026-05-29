@@ -79,7 +79,7 @@ const (
 type Action int
 
 const (
-	ActionDelete  Action = iota // remove Path (Trash or hard, per cfg)
+	ActionDelete  Action = iota // move Path to the Trash
 	ActionCommand               // run the ecosystem's own cleanup command
 )
 

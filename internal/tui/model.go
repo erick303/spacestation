@@ -19,8 +19,8 @@ import (
 )
 
 // Public entrypoint.
-func Run(cfg config.Config, mode cleanup.Mode) error {
-	m := newModel(cfg, mode)
+func Run(cfg config.Config) error {
+	m := newModel(cfg)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
@@ -46,8 +46,7 @@ type row struct {
 }
 
 type model struct {
-	cfg        config.Config
-	deleteMode cleanup.Mode
+	cfg config.Config
 
 	stage stage
 
@@ -130,10 +129,9 @@ func newSpinner() spinner.Model {
 	return sp
 }
 
-func newModel(cfg config.Config, mode cleanup.Mode) *model {
+func newModel(cfg config.Config) *model {
 	return &model{
 		cfg:         cfg,
-		deleteMode:  mode,
 		stage:       stageScanning,
 		spinner:     newSpinner(),
 		scanStart:   time.Now(),
@@ -144,7 +142,7 @@ func newModel(cfg config.Config, mode cleanup.Mode) *model {
 }
 
 // resetForRescan returns m to the just-started-a-scan state without
-// touching user preferences. cfg, deleteMode, width/height, collapsed
+// touching user preferences. cfg, width/height, collapsed
 // group state, and dashboardOn all survive a rescan; everything else
 // (scan progress, browsing state, cleaning state, armed-toggle state)
 // is wiped.
@@ -813,11 +811,10 @@ func (m *model) executeClean() tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cleanCancel = cancel
 	cfg := m.cfg
-	mode := m.deleteMode
 	return func() tea.Msg {
 		defer cancel()
 		start := time.Now()
-		results := cleanup.Execute(ctx, selected, mode)
+		results := cleanup.Execute(ctx, selected)
 		// Invalidate size-cache entries for what we successfully removed so the
 		// next scan re-measures them.
 		for _, r := range results {
@@ -1236,10 +1233,6 @@ func (m *model) viewConfirm() string {
 	}
 	verb := "Move to Trash"
 	hint := "Items will go to ~/.Trash — you can restore from Finder."
-	if m.deleteMode == cleanup.ModeHard {
-		verb = dangerStyle.Render("PERMANENTLY DELETE")
-		hint = "--hard mode: items will be removed immediately. No undo."
-	}
 	count := m.countSelectedCleanable()
 	body := fmt.Sprintf(
 		"%s  %s\n\n%d items, %s\n\n%s\n\n%s",
@@ -1353,9 +1346,6 @@ func (m *model) viewDone() string {
 		}
 	}
 	verb := "moved to Trash"
-	if m.deleteMode == cleanup.ModeHard {
-		verb = "permanently deleted"
-	}
 	if m.pendingTrash {
 		verb = "permanently removed from Trash"
 	}

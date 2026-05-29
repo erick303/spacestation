@@ -257,7 +257,7 @@ func probeDownloads(ctx context.Context, cfg config.Config, workers int, emit fu
 				SizeBytes:   size,
 				LastTouched: info.ModTime(),
 				Safety:      SafetyUserContent,
-				Detail:      "Item in ~/Downloads. User content — deletion is permanent (when --hard) or moves to Trash.",
+				Detail:      "Item in ~/Downloads. User content — moves to Trash.",
 			})
 		}(full)
 	}
@@ -283,8 +283,8 @@ func isScreenshotName(name string) bool {
 
 // probeScreenshots emits one candidate per macOS screenshot sitting in the
 // configured screenshot directory (default ~/Desktop). Screenshots are user
-// content, not regenerable — they move to Trash rather than being hard-deleted
-// unless --hard is set, and scoring only auto-selects ones past the age gate.
+// content, not regenerable — they move to Trash, and scoring only auto-selects
+// ones past the age gate.
 func probeScreenshots(ctx context.Context, _ config.Config, emit func(Candidate)) {
 	root := config.ScreenshotDir()
 	info, err := os.Stat(root)
@@ -312,7 +312,7 @@ func probeScreenshots(ctx context.Context, _ config.Config, emit func(Candidate)
 			SizeBytes:   info.Size(),
 			LastTouched: info.ModTime(),
 			Safety:      SafetyUserContent,
-			Detail:      "Screenshot saved by macOS. User content — moves to Trash (or permanently deleted with --hard).",
+			Detail:      "Screenshot saved by macOS. User content — moves to Trash.",
 		})
 	}
 }

@@ -81,7 +81,6 @@ go install .
 ```sh
 spacestation              # launches the TUI
 spacestation --json --dry-run | jq    # see what would be selected, no UI
-spacestation --hard       # delete instead of moving to Trash
 spacestation --config     # print config-file path
 spacestation --version    # print version and exit
 ```
@@ -147,7 +146,7 @@ Plus fixed-path probes for: `~/Library/Developer/Xcode/{DerivedData,Archives}`,
 Plus macOS **screenshots** (`Screenshot *.png` and other `screencapture` formats)
 in the configured screenshot location — read from
 `com.apple.screencapture location`, defaulting to `~/Desktop`. Screenshots are
-user content (not regenerable); they move to Trash unless `--hard` is set.
+user content (not regenerable); they move to Trash.
 
 `.git`, `.hg`, `.svn`, `.idea`, `.vscode` are never descended into.
 
@@ -192,14 +191,10 @@ downloads_min_age_days = 90
 downloads_min_size_mb = 100
 # Only pre-select screenshots at least this old (days).
 screenshots_min_age_days = 90
-
-[delete]
-# How "enter" cleans: "trash" moves to ~/.Trash (restorable), "hard" deletes permanently.
-mode = "trash"
 ```
 
 CLI flags override config: `--scan-root <path>` (repeatable),
-`--no-downloads`, `--no-trash`, `--no-screenshots`, `--hard`.
+`--no-downloads`, `--no-trash`, `--no-screenshots`.
 
 > **`--scan-root` only finds project artifact dirs.** A scan root is walked the
 > same way as `project_roots`: it reports *only* the regenerable artifact
@@ -230,9 +225,8 @@ scan ~28s, warm scan ~6s.
 
 ## Safety
 
-- Default cleanup mode is **Trash** — items go to `~/.Trash` via Finder
+- Cleanup always uses the **Trash** — items go to `~/.Trash` via Finder
   (single batched `osascript` call) and can be restored with Put Back.
-- `--hard` switches to `os.RemoveAll`. No undo.
 - Command-action candidates run the tool's own cleanup — they handle their
   own locking and won't corrupt in-flight builds.
 - Cleanup runs from a confirmation modal that shows total size + count and
@@ -248,7 +242,7 @@ spacestation/
 │   ├── scan/                     # walker, classifier, smart probes, size cache
 │   ├── score/                    # default-selection rules
 │   ├── cleanup/                  # dispatch trash vs run-command
-│   ├── trash/                    # osascript batch + RemoveAll fallback
+│   ├── trash/                    # osascript batch move-to-Trash
 │   └── tui/                      # Bubble Tea model
 └── internal/scan/scan_test.go    # synthetic-tree tests
 ```
