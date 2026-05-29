@@ -39,7 +39,7 @@ func TestDefault(t *testing.T) {
 	if len(cfg.Scan.ProjectRoots) != 1 || cfg.Scan.ProjectRoots[0] != "~/projects" {
 		t.Errorf("Default Scan.ProjectRoots = %v, want [~/projects]", cfg.Scan.ProjectRoots)
 	}
-	if !cfg.Scan.IncludeFixedPaths || !cfg.Scan.IncludeDownloads || !cfg.Scan.IncludeTrash || !cfg.Scan.IncludeSystemCache {
+	if !cfg.Scan.IncludeFixedPaths || !cfg.Scan.IncludeDownloads || !cfg.Scan.IncludeTrash || !cfg.Scan.IncludeScreenshots {
 		t.Errorf("Default Scan booleans should all be true, got %+v", cfg.Scan)
 	}
 	// Selection defaults.
@@ -106,6 +106,43 @@ func TestExpandedRoots(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("ExpandedRoots[%d] = %q, want %q", i, got[i], want[i])
 		}
+	}
+}
+
+func TestMissingRoots(t *testing.T) {
+	dir := t.TempDir() // exists
+	cfg := Config{
+		Scan: ScanConfig{
+			ProjectRoots: []string{dir, "/no/such/path/here", filepath.Join(dir, "nope")},
+		},
+	}
+	got := cfg.MissingRoots()
+	want := []string{"/no/such/path/here", filepath.Join(dir, "nope")}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("MissingRoots() = %v, want %v", got, want)
+	}
+}
+
+func TestDetectProjectRoots(t *testing.T) {
+	// Empty home → no candidates exist → no roots seeded (no invented default
+	// that would trip the missing-root warning on first run).
+	t.Setenv("HOME", t.TempDir())
+	if got := detectProjectRoots(); len(got) != 0 {
+		t.Errorf("detectProjectRoots() with no dirs = %v, want []", got)
+	}
+
+	// Create ~/dev and ~/code → both detected, in candidate order.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, sub := range []string{"code", "dev"} {
+		if err := os.MkdirAll(filepath.Join(home, sub), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", sub, err)
+		}
+	}
+	got := detectProjectRoots()
+	want := []string{"~/dev", "~/code"} // order follows projectRootCandidates
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("detectProjectRoots() = %v, want %v", got, want)
 	}
 }
 

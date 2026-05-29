@@ -87,8 +87,38 @@ func defaultFixedProbes() []fixedProbe {
 	}
 }
 
+// Location is a known fixed scan target, surfaced in the settings UI so the
+// user can toggle individual targets on or off.
+type Location struct {
+	Path   string // ~-relative; expanded by config.Expand
+	Label  string // category name, e.g. "xcode", "docker"
+	Detail string // human description, reused as the per-item help text
+}
+
+// DefaultLocations returns the static catalog of known fixed locations, in
+// display order, deduped by path. probeFixedPaths skips any whose path appears
+// in cfg.Scan.DisabledLocations.
+func DefaultLocations() []Location {
+	var out []Location
+	seen := map[string]bool{}
+	for _, p := range defaultFixedProbes() {
+		if seen[p.path] {
+			continue
+		}
+		seen[p.path] = true
+		out = append(out, Location{Path: p.path, Label: p.cat.String(), Detail: p.detail})
+	}
+	return out
+}
+
 func probeFixedPaths(ctx context.Context, cfg config.Config, workers int, emit func(Candidate)) {
 	probes := defaultFixedProbes()
+
+	// Locations the user turned off in the setup screen.
+	disabledLoc := map[string]bool{}
+	for _, d := range cfg.Scan.DisabledLocations {
+		disabledLoc[config.Expand(d)] = true
+	}
 
 	// Add brew --cache if brew is on PATH and not already covered.
 	if out, err := exec.Command("brew", "--cache").Output(); err == nil {
@@ -119,10 +149,8 @@ func probeFixedPaths(ctx context.Context, cfg config.Config, workers int, emit f
 		if ctx.Err() != nil {
 			break
 		}
-		// Honor the include_system_caches knob: when false, skip every
-		// CatSystemCache probe (~/Library/Caches, ~/.cache, ~/Library/Logs).
-		// All other categories are always probed.
-		if p.cat == CatSystemCache && !cfg.Scan.IncludeSystemCache {
+		// Skip locations the user turned off in the setup screen.
+		if disabledLoc[config.Expand(p.path)] {
 			continue
 		}
 		if claimed[config.Expand(p.path)] {

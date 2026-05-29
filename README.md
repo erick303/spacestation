@@ -131,7 +131,8 @@ the regular path-based candidate is used instead.
 
 ### Path-based candidates (action: delete)
 
-Discovered by walking your configured project roots (default `~/projects`):
+Discovered by walking your configured project roots (auto-detected on first
+run from common dev-folder locations; see `project_roots` in [Config](#config)):
 
 `node_modules`, `.pnpm-store`, `.next`, `.nuxt`, `.turbo`, `.vite`,
 `.parcel-cache`, `dist`, `out`, `.venv`, `venv`, `.virtualenv`, `__pycache__`,
@@ -163,22 +164,37 @@ without picking individually:
 
 ## Config
 
-`~/.config/spacestation/config.toml` is auto-created on first run, with the same
-comments shown below explaining each key:
+On first run (no config yet) spacestation opens a short **setup screen**. Its
+**Locations** list combines the known fixed locations (Xcode DerivedData,
+Docker, Go/Cargo/npm/Homebrew and system caches — on by default) with your
+**project roots**, pre-filled from detected dev folders (`~/dev`, `~/code`, …);
+toggle any off, or add your own paths. The remaining options (Downloads, Trash,
+screenshots, and the pre-select thresholds) are set on the same screen. Press
+`?` on any row for an explanation of that setting. Saving writes
+`~/.config/spacestation/config.toml` and starts scanning. Press `e` anytime in
+the browse view to reopen the screen and edit the config (scan-affecting changes
+take effect on the next rescan — press `r`).
+
+You can also edit `config.toml` directly. It carries the same comments shown
+below explaining each key:
 
 ```toml
 [scan]
 # Directories walked for project artifact dirs (node_modules, target, dist, …).
-# A leading "~" expands to your home directory.
+# A leading "~" expands to your home directory. The first-run setup screen seeds
+# this from detected dev folders (~/dev, ~/code, …); edit it here or with the e
+# key in the app. Roots that don't exist are skipped with a warning, never an error.
 project_roots = ["~/projects"]
-# Probe well-known fixed locations (Xcode DerivedData, Docker, ~/.cargo, …).
+# Known fixed locations (Xcode DerivedData, Docker, caches, …) you turned off in
+# the setup screen. Managed there; only written when non-empty.
+# disabled_locations = []
+# Master switch for the known fixed locations. Individual ones are toggled in the
+# setup screen (the e key); set this false to skip all of them at once.
 include_fixed_paths = true
 # Include old, large files sitting in ~/Downloads.
 include_downloads = true
 # Include the contents of ~/.Trash.
 include_trash = true
-# Include per-app system caches under ~/Library/Caches and ~/.cache.
-include_system_caches = true
 # Include macOS screenshots in your configured screenshot location.
 include_screenshots = true
 
